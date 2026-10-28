@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+message SetThemeRequest {
+  string theme = 1;
+}
+
+// The app's identity from mobrowser.conf.json, for Settings → About.
+message AppInfo {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  string copyright = 4;
+  // e.g. "Apple Silicon", "Intel", "64-bit"; empty when unknown.
+  string architecture = 5;
+}
+
+message OpenSettingsRequest {
+  // "general", "import-export" or "about".
+  string section = 1;
+}
+
+service AppService {
+  rpc SetTheme(SetThemeRequest) returns (google.protobuf.Empty);
+  rpc GetAppInfo(google.protobuf.Empty) returns (AppInfo);
+  // Opens the Settings window (or focuses it) on the given section.
+  rpc OpenSettings(OpenSettingsRequest) returns (google.protobuf.Empty);
+}

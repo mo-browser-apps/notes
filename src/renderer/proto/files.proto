@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+// A file the user picked to import.
+message ImportedFile {
+  string name = 1;
+  string content = 2;
+}
+
+message OpenMarkdownFilesResponse {
+  bool canceled = 1;
+  repeated ImportedFile files = 2;
+  // Names of picked files that could not be read (too large, unreadable).
+  repeated string skipped = 3;
+}
+
+message SaveFileRequest {
+  // Suggested file name, e.g. "Meeting Notes.md".
+  string suggested_name = 1;
+  // Human-readable filter name shown in the dialog, e.g. "Markdown".
+  string filter_name = 2;
+  repeated string extensions = 3;
+  bytes data = 4;
+  string title = 5;
+}
+
+message SaveFileResponse {
+  bool canceled = 1;
+  string path = 2;
+}
+
+// Native file dialogs and file-system access, which the sandboxed renderer
+// can't do itself.
+service FilesService {
+  rpc OpenMarkdownFiles(google.protobuf.Empty)
+      returns (OpenMarkdownFilesResponse);
+  rpc SaveFile(SaveFileRequest) returns (SaveFileResponse);
+}

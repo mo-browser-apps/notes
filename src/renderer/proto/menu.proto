@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+// A command chosen from the application menu (or its keyboard shortcut).
+message MenuCommand {
+  // e.g. "note.new", "format.bold", "view.sort".
+  string id = 1;
+  // An argument for commands that take one, e.g. the sort mode or theme.
+  string value = 2;
+}
+
+// What the renderer is showing, so the menu can enable, label and check its
+// items. An item is enabled only when choosing it would act: the renderer
+// computes these with the same checks its command handler runs.
+message MenuState {
+  bool ready = 1;
+  bool has_note = 2;
+  bool editing = 3;
+  bool sidebar_open = 4;
+  string sort_mode = 5;
+  reserved 6;  // was theme: Appearance moved to Settings → General
+  bool has_notes = 7;
+  // Format ▸ … would act: the note body (or its toolbar) has focus.
+  bool can_format = 8;
+  // A dialog is open; no menu command runs behind it.
+  bool modal = 9;
+}
+
+service MenuService {
+  rpc OnCommand(google.protobuf.Empty) returns (stream MenuCommand);
+  rpc SetState(MenuState) returns (google.protobuf.Empty);
+  // Runs a command in the main window as if it was chosen from the menu, e.g.
+  // Import/Export from the Settings window, which has no notes store of its
+  // own. Brings the main window forward.
+  rpc Dispatch(MenuCommand) returns (google.protobuf.Empty);
+}
