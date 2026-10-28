@@ -6,6 +6,8 @@ A local-first Markdown notes app for macOS, Windows, and Linux, built with
 Notes are stored on your machine in the app's IndexedDB. There is no account, no sync, and no
 server. You write in plain Markdown, and you can export your notes as `.md` files at any time.
 
+![The Notes window in the dark theme: folders on the left, the note list in the middle, and a Markdown note open in the editor](screenshot.png)
+
 ## Features
 
 - **Three-pane layout.** Folders, the note list, and the editor. Below 768 px the folder sidebar
