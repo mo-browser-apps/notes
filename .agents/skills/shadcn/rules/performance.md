@@ -155,10 +155,10 @@ The namespace import also defeats the "pass icons as objects" rule in [icons.md]
 
 ---
 
-## Measure it
+## Probe
 
-Don't optimize on a hunch — get a number from the running app first (see
-[verification.md](./verification.md) for the automation flow).
+Don't optimize on a hunch — get a number from the running app first (launched and driven as
+`AGENTS.md` describes).
 
 **How heavy is the view?**
 

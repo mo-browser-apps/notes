@@ -25,6 +25,10 @@ fails with "command not found".
   fail here — fix them first.
 - `npm run dev` — build and run the app with the renderer served live by Vite (hot reload). The
   renderer is **not type-checked** there — run `npm run build` to catch renderer/type errors.
+- `npm run build` then `npm run pack` — the production build and the installer (Velopack `Setup.exe`
+  on Windows, DMG on macOS). `npm run pack -- --msix` turns the same build into a Microsoft Store package;
+  it needs `app.bundle.Windows.installer.msix` in `mobrowser.conf.json` and the Windows SDK, and the
+  tile images come from `npm run mobrowser -- icon --msix --source <square image>`.
 
 How agents launch the app is covered in "Running the app and verifying changes" below.
 
@@ -119,20 +123,28 @@ const worker = workerFactory()
 <!-- BEGIN:mobrowser-agent -->
 # Running the app and verifying changes
 
-`npm run mobrowser -- agent <command>` drives a running app so you can verify changes against the
-real thing. Each command prints JSON on stdout and exits non-zero on failure; see `agent --help` for
-the full list. (Commands are shortened to `agent …` below — always prefix with `npm run mobrowser --`.)
+`npm run -s agent -- <command>` drives a running app so you can verify changes against the real
+thing. Each command prints JSON on stdout and exits non-zero on failure; see `agent --help` for the
+full list. (Commands are shortened to `agent …` below — always prefix with `npm run -s agent --`, or
+with `npm run -s mobrowser -- agent` in a project whose `package.json` has no `agent` script.) Keep
+the `-s`: without it npm 10 and 11 print their `> app@1.0.0 agent` banner on stdout, in the middle
+of the JSON.
+
+**This section is the only place that says how to launch, restart, and stop the app.** Skill and
+rule files never launch it; when one says "restart the app", do it as described here. *How much* to
+check is decided by `.agents/skills/mobrowser-testing/SKILL.md`; the `agent` commands are the means.
 
 ## Launching
 
 The mode in `mobrowser.conf.json` (`"automation": { "mode": ... }`) decides how. Use **interactive**
 (the default) unless the user asks for headless or autonomous work, or the config sets
-`"autonomous"`.
+`"autonomous"`. Pick the mode once per session and stay in it.
 
 - **Interactive** — the user watches and tries the app. Start `npm run dev -- --automation` in a
   background terminal: it builds, shows the window, and serves the renderer live, so renderer edits
-  appear without a restart. After main-process or native changes, run `agent stop` and start it
-  again. When you're done, **leave it running** — the user closes it — and reuse it on later turns.
+  appear without a restart. Then start `agent wait-annotations` in the background (see "Annotations
+  from the user"). After main-process or native changes, run `agent stop` and start both again. When
+  you're done, **leave it running** — the user closes it — and reuse it on later turns.
 - **Autonomous** — nobody watches. Run `npm run dev:build`, then `agent launch`: the app runs
   detached with its window hidden. Re-run both after any change. When you're done, **always** run
   `agent stop`, even if the job failed.
@@ -140,23 +152,117 @@ The mode in `mobrowser.conf.json` (`"automation": { "mode": ... }`) decides how.
 Start the app once and reuse it for every command — never relaunch per command.
 `--show-window[=false]` overrides the mode's window visibility.
 
+Two mistakes that cut off the user's app:
+
+- **Never run `agent launch` in an interactive session.** A project has one agent connection
+  (`.mobrowser/agent.json`); `agent launch` takes it over, so the app the user is looking at is cut
+  off and a second app without hot reload appears. A clean console baseline or a fresh bundle is a
+  reason to restart as above, not to switch modes.
+- **Never hand over through plain `npm run dev`.** Without `--automation` there is no agent server:
+  annotations don't work, a covered window stops rendering, and your later `agent` commands fail.
+
+Every launch above uses the app's persistent profile, not a throwaway one. A check that edits
+content edits the user's data; put such checks in the e2e tests, which run on a fresh profile.
+
+## This is a desktop app, not a web app
+
+`npm run dev` also starts a Vite server on `localhost` (the CLI prints its port), but it only feeds
+the app's own window: the renderer needs the main-process IPC bridge, which no browser has, so the
+page fails outside the app. **Never open that address** in a built-in, IDE, or preview browser, in
+Playwright, or with `curl`, and never register `npm run dev` as a web dev server for a preview tool
+(such as a `.claude/launch.json` entry or `preview_start`). Run it in a terminal as described above
+and verify through the `agent` commands below.
+
 ## Driving the app
 
 1. `agent snapshot` — accessibility tree with stable `[ref=eN]` markers; prefer it over screenshots.
 2. Act by `ref`: `agent click --ref e12`, `fill --ref e5 --value "hi"`, `type --ref e5 --text "hi"`,
    `press-key --key Enter`. Confirm with `agent snapshot` or `agent screenshot --out shot.png`.
-3. Inspect: `agent eval "location.href"`, `agent console`, `agent network`; `agent list-windows` /
-   `select-window` for multi-window apps.
+   - `click --ref e12 --button right` is a real right-click: the page gets `contextmenu`, so a
+     `ContextMenu` opens as it does for the user.
+   - `drag --from-ref e3 --to-ref e9` drags with a real pointer, pressed on the first element and
+     released on the second: pointer-driven handles (resizers, sliders, sortable lists) and HTML5
+     drag and drop both receive it. `--from-selector`/`--to-selector` take CSS selectors instead.
+   - `press-key --key` takes `Enter`, `Tab`, `Escape`, `Backspace`, `Delete`, `Space`, `ArrowLeft`,
+     `ArrowRight`, `ArrowUp`, `ArrowDown`, `Home`, `End`, `PageUp`, `PageDown`, or one character,
+     after any of `Control+`, `Alt+`, `Shift+`, `Meta+` (e.g. `Control+A`, `Shift+Tab`).
+   Never hand-build `MouseEvent`s, `DragEvent`s, or `contextmenu` events in `agent eval`.
+3. Resize: `agent resize --width 720 --height 560` sets the active window's outer size from the main
+   process, as `setSize` does. The window stops at its `setMinimumSize`, and the command prints the
+   resulting `width`/`height` and the page's `viewport` once it has laid out, so ask for less than
+   the minimum to see where it stops. Never edit `setSize` in `src/main` to try a size.
+4. Inspect: `agent eval "location.href"`, `agent console`, `agent network`; `agent list-windows` /
+   `select-window` for multi-window apps. Select a window by URL (`select-window --url "#/settings"`),
+   never by index: the order changes between launches.
 
 Prepare for dialogs before the action that opens them. Queue answers for native message boxes and
 file pickers with `agent answer-dialog`, including JavaScript dialogs the app routes to message
 boxes with `browser.handle`. Stub other JavaScript dialogs, for example
 `agent eval "window.confirm = () => true"`, and reload afterwards. With a visible window, an
 unprepared dialog waits for the user and blocks your commands on its page; with a hidden window,
-it gets a default answer.
+it gets a default answer. Every native dialog is recorded in `agent dialogs`; an entry there shows
+the action ran, but it isn't a substitute for the user seeing the dialog.
 
-Scope: the agent drives the **renderer** (plus native screenshots and dialogs above); it does not
-drive or read the main process.
+Scope: the agent drives the **renderer** (plus the window size, native screenshots, and dialogs
+above); it does not drive or read the rest of the main process.
+
+## What the tooling cannot see
+
+Every check can silently lie in the situations below, all measured in this repo. Rule them out before
+believing a pass or a failure.
+
+- **A covered window.** Started for automation (`--automation` or `agent launch`), the app keeps
+  rendering when covered; otherwise Chromium reports `document.visibilityState === "hidden"`, pauses
+  animation frames, and Base UI overlays never finish opening or closing. Either way `agent screenshot`
+  can return stale frames of a covered window. Check `agent eval "document.visibilityState"` before
+  trusting overlay checks, bring the window to the front before screenshots, and cross-check the `h1`
+  with `agent eval` when a screenshot looks unchanged.
+- **`agent console` only records `console.*` calls.** Uncaught exceptions and unhandled promise
+  rejections never appear there, and a React render crash unmounts the app to an empty `#root`
+  without a console entry. Arm a listener right after every launch and after every
+  `location.reload()` (a reload discards it), then read it back together with the `#root` child count:
+
+  ```bash
+  npm run -s agent -- eval "(() => {
+    if (window.__errors) return 'already armed';
+    window.__errors = [];
+    addEventListener('error', (e) => window.__errors.push('error: ' + e.message));
+    addEventListener('unhandledrejection', (e) => window.__errors.push('rejection: ' + (e.reason?.message ?? e.reason)));
+    return 'armed';
+  })()"
+  # … drive the app …
+  npm run -s agent -- eval "JSON.stringify({ root: document.querySelector('#root')?.childElementCount, errors: window.__errors })"
+  ```
+
+  The pass condition is `root > 0`, `errors: []`, and no error entries in `agent console`. An empty
+  console on its own proves nothing. `agent console` has no `--clear` and a launch-time error is a
+  defect too, so read it once right after a restart, before touching anything.
+- **`agent eval` shares one global scope across calls.** A top-level `const` in one call breaks the
+  next call that declares the same name. Wrap every script in `(() => { … })()`. A long `eval` times
+  out: start long work asynchronously, store the result on `window`, and poll it.
+- **`agent launch` serves the bundle that existed at launch.** After `npm run dev:build`, a
+  `location.reload()` still shows the old code; restart instead. Under `npm run dev -- --automation`
+  the renderer hot-reloads, but main-process changes still need a restart. Cross-check with a marker
+  for the component you just added: `agent eval "document.querySelector('[data-slot=…]') !== null"`.
+- **Closing overlays stay in the DOM for their exit animation.** Query open ones with
+  `:not([data-closed])`, for example `[role=dialog]:not([data-closed])`, never the bare role. `.click()`
+  schedules a re-render: read the state in a separate `agent eval`, or use `agent wait-for --selector`.
+- **An open menu eats the next click.** Menus are modal: a click outside only closes the menu, so
+  the next command looks like a dead control. Confirm `document.querySelectorAll('[role=menu]').length === 0`
+  before each click; `agent press-key --key Escape` only reaches a menu that has focus.
+- **Don't discard command output.** `agent click`/`type` on a selector that matches nothing prints an
+  error; piping it to `/dev/null` turns it into "a control that did nothing". The first `input` on a
+  page is often a `Select`'s hidden input: target inputs by their label and read the result back
+  with `agent eval` after every action.
+- **`agent click` and `drag` bypass OS drag regions.** A control under a `-webkit-app-region: drag` area
+  looks clickable to the agent while a real mouse click is swallowed; read the computed region.
+- **The agent drives the renderer only.** Native chrome (titlebar, traffic lights, menu bar, tray,
+  Dock) is not in `agent screenshot`, and native menus can't be clicked. For those, take or request
+  an OS-level screenshot, or ask the user.
+- **`press-key` never reaches a native menu.** Shortcuts the menu handles, including the Edit roles
+  (⌘A Select All, ⌘C, ⌘V, ⌘Z), don't fire from `agent press-key`: `Meta+A` in a field selects
+  nothing, and a following `type` appends to the old text. Set a field's value with `agent fill`,
+  and run app commands through the shortcut the page also handles (see `AppCommands`).
 
 ## Annotations from the user
 
@@ -201,12 +307,17 @@ MōBrowser, all of which have changed.
 
 | You are touching… | Read first | It owns |
 | --- | --- | --- |
-| `src/renderer` — any screen, component, dialog, form, style, or theme | [`.agents/skills/shadcn/SKILL.md`](.agents/skills/shadcn/SKILL.md) | composition, styling, forms, icons, structure, visual polish, interaction, verification |
-| `src/main` — window, menu, tray, Dock, lifecycle | [`.agents/skills/desktop-shell/SKILL.md`](.agents/skills/desktop-shell/SKILL.md) | the native shell |
-| `test/e2e` — or deciding whether a change needs a test | [`.agents/skills/mobrowser-testing/SKILL.md`](.agents/skills/mobrowser-testing/SKILL.md) | end-to-end regression coverage |
+| `src/renderer` — any screen, component, dialog, form, style, or theme | [`.agents/skills/shadcn/SKILL.md`](.agents/skills/shadcn/SKILL.md) | the renderer: composition, styling, forms, icons, structure, visual polish, interaction, the macOS window-chrome CSS |
+| `src/main` — window, menu, tray, Dock, lifecycle, the Settings window | [`.agents/skills/desktop-shell/SKILL.md`](.agents/skills/desktop-shell/SKILL.md) | the native shell |
+| Any change — how much to check, and whether it needs a test | [`.agents/skills/mobrowser-testing/SKILL.md`](.agents/skills/mobrowser-testing/SKILL.md) | verification and end-to-end regression coverage |
+| `README.md` — a finished new app, or a change to its name, purpose, native module, scripts, or release workflow | [`.agents/skills/project-readme/SKILL.md`](.agents/skills/project-readme/SKILL.md) | the README: description, requirements, running, building, downloads |
 
-Each skill's `rules/` directory holds the detailed Incorrect/Correct pairs; the `SKILL.md` links to
-them. The shadcn skill also vendors the upstream component docs at
+Each `SKILL.md` opens with the project's fixed conventions and links its `rules/` files for the
+Incorrect/Correct detail. **Every rule file ends with a `## Probe` section**: the scripted check for
+that area. The testing skill says *when* to run probes; each rule says *what* its probe catches.
+Launching and driving the app is described only in "Running the app and verifying changes" above.
+
+The shadcn skill also vendors the upstream component docs at
 `.agents/skills/shadcn/component-docs/` — **read component usage from there, never from the web.**
 
 > The shadcn skill is a **local fork** — never re-run `npx skills add shadcn/ui`; it would overwrite
@@ -214,67 +325,68 @@ them. The shadcn skill also vendors the upstream component docs at
 
 ## When the skills apply
 
-**shadcn** — whenever you create, change, review, test, QA, or verify any renderer UI, whenever you
-run the app to check how UI looks or behaves, and whenever you work with files under
-`src/renderer/components/ui`.
+**shadcn** — whenever you create, change, review, or verify any renderer UI, and whenever you work
+with files under `src/renderer/components/ui`.
 
 **desktop-shell** — whenever you build a new app or feature, change what the app *is*, or a reference
-image/mockup implies a window shape (a compact panel, a menubar popover, a HUD, a full app).
+image/mockup implies a window shape (a compact panel, a menubar popover, a HUD, a full app). An app
+is more than its renderer: the window size and constraints, the titlebar and macOS traffic lights,
+the application menu, the tray, and the Dock/activation policy are decisions too, and the
+scaffolding's defaults are a *starting point, not a decision*. The macOS traffic-light setup spans
+both skills, and the two halves must stay in sync.
 
-**An app is more than its renderer.** A new app or feature is not finished when the UI renders: the
-window size and constraints, the titlebar and macOS traffic lights, the application menu, the tray,
-and the Dock/activation policy are decisions too. The scaffolding's defaults are a *starting point,
-not a decision*. shadcn owns `src/renderer`; desktop-shell owns `src/main`; the macOS traffic-light
-setup spans both and the two halves must stay in sync.
+**mobrowser-testing** — for every change, before you start and when you finish. It decides how much
+verification a change needs, from one screenshot to a crawl of a new screen, and what becomes a
+regression test. Verification is part of the job, not a follow-up, and it applies in both
+directions: after you build something, and whenever you're asked to run, check, verify, review,
+test, QA, or "make sure X works" — which includes how it looks, not only whether it responds.
 
-## Verification is part of the job, not a follow-up
+**project-readme** — when a new app is built and verified, and whenever a change alters a fact the
+README states. The scaffolding ships no `README.md`; writing it is the last step of building an app.
 
-This applies in **both** directions — after you build UI, **and** whenever you're asked to run,
-check, verify, review, test, QA, or "make sure X works/renders properly" (even for UI you didn't
-write). "Works properly" and "renders properly" **include visual correctness**: a screen can open,
-filter, and click correctly while still being visually wrong.
+## Building a new app: what to read, in order
 
-**Adopt a bug-hunting stance, not a confirmation stance.** Assume at least one defect exists and go
-find it — a confirmation mindset produces false "looks clean" passes. Then follow the skill:
+Read these at each step and nothing more. Open another rule file only when the shadcn trap index
+or a probe sends you there; every fact lives in one file, and the others link to it.
 
-- [`rules/verification.md`](.agents/skills/shadcn/rules/verification.md) — the delivery gate:
-  enumerate and click **every** control, check the console for crashes/errors, report coverage.
-- [`rules/visual-polish.md`](.agents/skills/shadcn/rules/visual-polish.md) — **measure** overlays with
-  `agent eval`, don't eyeball them; concentric radii, spacing, loading/empty/error states.
-- [`rules/interaction.md`](.agents/skills/shadcn/rules/interaction.md) — exercise the keyboard: Esc
-  clears a filter, Enter submits, every overlay closes **and stays closed**.
-- [`rules/app-window.md`](.agents/skills/shadcn/rules/app-window.md) — on macOS, the traffic lights
-  are native chrome and **absent from `agent screenshot`**; verify the keep-out box and drag regions
-  by reading the DOM.
-- [`desktop-shell/rules/verification.md`](.agents/skills/desktop-shell/rules/verification.md) — read
-  the window shape back; main-process changes don't hot-reload.
-
-Two things the `agent` tooling cannot see on its own:
-
-- **A window covered by other windows breaks automation.** Chromium reports it
-  `document.visibilityState === "hidden"`, pauses animation frames, and Base UI overlays never finish
-  opening or closing; `agent screenshot` returns stale frames. Check
-  `agent eval "document.visibilityState"` before trusting overlay checks or screenshots, launch with
-  `agent launch -- --disable-backgrounding-occluded-windows --disable-renderer-backgrounding`, and
-  bring the window to the front before screenshots (details in
-  [`verification.md`](.agents/skills/shadcn/rules/verification.md#make-the-automation-trustworthy-first)).
-- **`agent console` only records `console.*` calls** — uncaught exceptions and promise rejections
-  never appear there, so arm a `window` error listener before trusting a clean console (recipe in
-  [`verification.md`](.agents/skills/shadcn/rules/verification.md#catch-what-agent-console-cant-see)).
-  `agent eval` shares one global scope across calls — wrap scripts in `(() => { … })()`.
-
-Passing `tsc` proves nothing about how it looks or behaves.
-
-## Non-negotiables (the details are in the skills)
-
-- **Use the app kit, don't hand-roll it** — `Page`, the hash router, `SearchField`, `FacetedFilter`,
-  `DateRangePicker`, the data-table parts and table-state rows, `StatusBadge`, `Metric`,
-  `ConfirmDialog`, `CopyButton`, `SaveBar`, `MoneyInput`, `Timeline` already live in
-  `src/renderer/components/ui` ([`rules/app-kit.md`](.agents/skills/shadcn/rules/app-kit.md)).
-- **Base UI, not Radix** — custom triggers use `render`, never `asChild`.
-- **No `"use client"`** — this is a Vite renderer, not RSC.
-- **Icons from `lucide-react`**; in components use `data-icon`, never sizing classes.
-- **Import via `@/` aliases**; `src/renderer/components/ui` is the registry mirror — no app code in it.
-- **`src/renderer/index.css` is the only stylesheet** — never create another; edit the OKLCH token
-  blocks at the bottom.
-- **`gen/` is generated** by `npm run gen` and gitignored — never hand-edit it.
+1. **Decide the shell.** [desktop-shell `SKILL.md`](.agents/skills/desktop-shell/SKILL.md) Step 1
+   (archetype) and [`rules/window.md`](.agents/skills/desktop-shell/rules/window.md); with a
+   reference image, its proportions are the spec. Add
+   [`rules/menu.md`](.agents/skills/desktop-shell/rules/menu.md) when you add menu commands, and
+   [`rules/tray-and-activation.md`](.agents/skills/desktop-shell/rules/tray-and-activation.md) for a
+   background or menubar app.
+2. **Decide where the data lives.** The main process owns what must exist before a window loads or
+   outlive one; the renderer reaches it through `.proto` IPC
+   ([`rules/structure.md`](.agents/skills/shadcn/rules/structure.md#ipc-proto-is-the-source-gen-is-not)).
+   App settings use main-process `prefs`
+   ([`rules/settings-window.md`](.agents/skills/desktop-shell/rules/settings-window.md#where-each-setting-lives)).
+   The app's own documents and records follow
+   [`rules/app-data.md`](.agents/skills/desktop-shell/rules/app-data.md): the data folder, JSON or
+   the built-in `node:sqlite`, atomic writes, and the revision check.
+3. **Build the screens.** [shadcn `SKILL.md`](.agents/skills/shadcn/SKILL.md) (conventions and the
+   trap index), then [`rules/app-kit.md`](.agents/skills/shadcn/rules/app-kit.md) before writing
+   any component, and [`rules/app-window.md`](.agents/skills/shadcn/rules/app-window.md) before
+   touching the toolbar or the sidebar header.
+4. **Check it.** [mobrowser-testing `SKILL.md`](.agents/skills/mobrowser-testing/SKILL.md): size the
+   check to the change and save what's worth protecting as e2e tests. For a first build, this is the
+   minimum, in order:
+   - **Static, no app needed:** the grep probes of
+     [`app-kit.md`](.agents/skills/shadcn/rules/app-kit.md#probe-find-hand-rolled-kit-patterns),
+     [`structure.md`](.agents/skills/shadcn/rules/structure.md#probe),
+     [`styling.md`](.agents/skills/shadcn/rules/styling.md#probe),
+     [`composition.md`](.agents/skills/shadcn/rules/composition.md#probe), and
+     [`menu.md`](.agents/skills/desktop-shell/rules/menu.md#probe) (no dead items).
+   - **In the running app:** the
+     [`accessibility.md`](.agents/skills/shadcn/rules/accessibility.md#probe) snippets on each
+     screen; the window at its minimum size
+     ([`window.md`](.agents/skills/desktop-shell/rules/window.md#probe)); the traffic-light
+     keep-out on macOS ([`app-window.md`](.agents/skills/shadcn/rules/app-window.md#probe)); each
+     menu command's state from `window.__menuState`; and a saved change read back after a reload
+     ([`app-data.md`](.agents/skills/desktop-shell/rules/app-data.md#probe)).
+   - **Once, on the main screen:** the [crash crawl](.agents/skills/shadcn/rules/crawl.md#probe).
+   Read a rule's full text only when its probe finds something.
+5. **Write the README.** Once the checks pass, follow
+   [project-readme `SKILL.md`](.agents/skills/project-readme/SKILL.md): `README.md` with the app's
+   name and description, requirements, running from source, building, and downloads, and the same
+   description in `app.description`. Run its [probe](.agents/skills/project-readme/SKILL.md#probe).
+   The app isn't finished without it.

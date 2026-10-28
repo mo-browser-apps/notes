@@ -4,47 +4,55 @@ This is a desktop app, not a website — but the window is **resizable**, and it
 its minimum. A layout built only at the launch size breaks the moment someone drags the window in, and
 nobody notices because the agent never resizes it.
 
-The two numbers that govern everything here live in `src/main/index.ts`:
+The two sizes that govern everything here are the main window's, in `src/main/index.ts`:
 
 ```ts
-win.setSize({ width: 1300, height: 900 })        // what you see on launch
-win.setMinimumSize({ width: 720, height: 560 })  // what the layout must still survive
+win.setSize({ width, height })         // what you see on launch
+win.setMinimumSize({ width, height })  // what the layout must still survive
 ```
 
-**Both are the spec.** "It works" means it works at 720×560 *and* at 1300×900, and at every size
-between.
+**Both are the spec.** Read the current values before you design or check a screen: "it works" means
+it works at the minimum *and* at the launch size, and at every size between. The scaffold starts
+small (a "Hello, world!" window); once the app has real content, size it for the archetype
+([window.md](../../desktop-shell/rules/window.md)). The examples below use a 720×560 minimum, a
+common choice for an app with a sidebar.
 
 ## Contents
 
-- The mobile breakpoint sits ABOVE the minimum window width
+- Where the mobile breakpoint sits
 - Use `useIsMobile()`, not `window.innerWidth`
 - Don't hardcode widths the window can't afford
 - Let content shrink: `min-w-0`, `truncate`, `flex-wrap`
 - Height is a constraint too
 - Changing the minimum is a decision, not a workaround
-- Verify it (the window can't be resized from the renderer)
+- Probe (resize with `agent resize`, never a temporary `setSize` edit)
 
 ---
 
-## The mobile breakpoint sits ABOVE the minimum window width
+## Where the mobile breakpoint sits
 
-`useIsMobile()` (`src/renderer/hooks/use-mobile.ts`) flips at **768px**. The window's minimum width is
-**720px**. Those overlap:
+`useIsMobile()` (`src/renderer/hooks/use-mobile.ts`) flips at **768px**. Compare it with the window's
+minimum and launch widths:
 
 ```
- 720px ─────────────── 768px ──────────────────────── 1300px
- │  window minimum      │  useIsMobile() flips        │  launch size
- └── "mobile" mode ─────┘────────── "desktop" mode ───┘
+ minimum ──────────── 768px ──────────────────────── launch size
+ │                     │  useIsMobile() flips          │
+ └── "mobile" mode ────┘────────── "desktop" mode ─────┘
 ```
 
-**So a perfectly normal desktop window can be in "mobile" mode.** In that band the `Sidebar` stops
-being a docked panel and renders as a `Sheet` overlay (`SIDEBAR_WIDTH_MOBILE`, opened by
-`setOpenMobile`), and every `md:` Tailwind utility switches off.
+- **Both below 768px** (the scaffold's starter window): the app is *always* in "mobile" mode.
+- **Minimum below 768px, launch size above:** a perfectly normal desktop window can be in "mobile"
+  mode once someone narrows it.
+- **Minimum at or above 768px:** never.
+
+In "mobile" mode the `Sidebar` stops being a docked panel and renders as a `Sheet` overlay
+(`SIDEBAR_WIDTH_MOBILE`, opened by `setOpenMobile`), and every `md:` Tailwind utility switches off. A
+window that's always narrow, like the Settings window, uses `Sidebar collapsible="none"` instead.
 
 This is not a bug, but it *is* a state you must design for and check:
 
-- **Exercise the 720–767px band explicitly.** It is the most-likely-broken width in the app, and it's
-  the one nobody looks at.
+- **Exercise the band from the minimum width to 767px explicitly.** It is the most-likely-broken
+  width in the app, and it's the one nobody looks at.
 - **Don't assume `isMobile` means "phone".** Copy like "tap" or "on your phone" is wrong here; it's a
   narrow desktop window.
 - **A sidebar toggle must exist in both modes** — in mobile mode the sidebar is an overlay, so the
@@ -87,7 +95,7 @@ styling.
 
 ## Don't hardcode widths the window can't afford
 
-At 720px of window, minus a 256px sidebar and page padding, the content column can be **under 420px**.
+At a 720px window, minus a 256px sidebar and page padding, the content column can be **under 420px**.
 Anything with a fixed width larger than that causes a horizontal scrollbar or clipped content.
 
 **Incorrect:**
@@ -140,7 +148,7 @@ at narrow widths" bugs (see [visual-polish.md](./visual-polish.md)).
 
 ## Height is a constraint too
 
-The minimum height is **560px**, and it's easier to break than width:
+The minimum height is part of the spec, and it's easier to break than width:
 
 - A dialog taller than the window can't be dismissed if its buttons are pushed off-screen.
   `DialogContent` is capped at `100svh − 2rem` and scrolls; a custom overlay you build yourself needs
@@ -156,15 +164,15 @@ The minimum height is **560px**, and it's easier to break than width:
   xl:flex-1` — and let the stacked layout grow and scroll normally.
 - `h-screen`/`h-[900px]` on a page section assumes the launch size. Use `min-h-0` + `flex-1` inside a
   flex column so panes share the available height.
-- A sticky toolbar plus a sticky footer at 560px leaves very little middle — check that the content
-  region is still usable.
+- A sticky toolbar plus a sticky footer at a 560px minimum leaves very little middle — check that the
+  content region is still usable.
 
 ---
 
 ## Changing the minimum is a decision, not a workaround
 
-If a layout genuinely can't work at 720px, **don't quietly widen `setMinimumSize` to make your screen
-fit**. Either simplify the layout for narrow widths, or raise the minimum *deliberately* and say so —
+If a layout genuinely can't work at the minimum width, **don't quietly widen `setMinimumSize` to make
+your screen fit**. Either simplify the layout for narrow widths, or raise the minimum *deliberately* and say so —
 it's a native-shell change owned by the
 [desktop-shell skill](../../desktop-shell/rules/window.md), and it affects every other screen.
 
@@ -173,31 +181,20 @@ it just above that.
 
 ---
 
-## Verify it (the window can't be resized from the renderer)
+## Probe
 
-**`window.resizeTo()` is a no-op in this app** (verified), and the `agent` CLI has no resize command —
-so you cannot check narrow layouts from the renderer. Use one of these:
-
-**1. Temporarily launch small (most reliable).** Change the size in `src/main/index.ts`, rebuild,
-look, then revert:
-
-```ts
-win.setSize({ width: 720, height: 560 })   // TEMPORARY — revert before committing
-```
+**`window.resizeTo()` is a no-op in this app** (verified). Resize the window from the main process
+with `agent resize` instead — no source edit, no restart:
 
 ```bash
-npm run dev:build && npm run mobrowser -- agent launch
-npm run mobrowser -- agent screenshot --out /tmp/narrow.png
-npm run mobrowser -- agent eval "JSON.stringify([innerWidth, innerHeight])"
+npm run -s agent -- resize --width 1 --height 1   # stops at the setMinimumSize values
+npm run -s agent -- screenshot --out build/narrow.png
 ```
 
-**2. Drag the window by hand** if you have the app in front of you — and drag it all the way to the
-minimum, not just "a bit smaller".
-
-**3. CDP emulation** if you need several widths quickly — launch with
-`npm run mobrowser -- agent launch -- --remote-debugging-port=9222` and drive
-`Emulation.setDeviceMetricsOverride` with a CDP tool (see the CDP section in `AGENTS.md`). Note this
-changes the *viewport*, so `matchMedia`/`useIsMobile()` respond, but native window chrome does not.
+It prints the outer `width`/`height` the window stopped at and the page's `viewport` (CSS pixels),
+read after the page has laid out at the new size. Asking for less than the minimum lands exactly on
+it; if that's wider than the 768px breakpoint you meant to cross, the minimum isn't what you think.
+To check both modes, resize to a width on each side of the breakpoint and probe each.
 
 At the narrow size, check for the specific failures:
 
@@ -214,4 +211,5 @@ At the narrow size, check for the specific failures:
 ```
 
 Then screenshot and look: no clipped text, no overlapping controls, no element pinned off-screen, and
-the sidebar still openable. **Revert the temporary `setSize` before you finish.**
+the sidebar still openable. If the user is watching, `agent resize` the window back to its launch size
+when you're done.

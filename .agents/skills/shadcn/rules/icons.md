@@ -99,3 +99,16 @@ function StatusBadge({ icon: Icon }: { icon: React.ComponentType }) {
 
 <StatusBadge icon={CheckIcon} />
 ```
+
+## Probe
+
+```bash
+cd src/renderer
+grep -rnE --include='*.tsx' -e '<[A-Z][A-Za-z]*Icon[^>]*className="[^"]*\b(size-|h-[0-9]|w-[0-9]|m[rl]-)' \
+  -e 'from "@radix-ui/react-icons"|from "react-icons' components | grep -v '^components/ui/' | grep -v 'probe-ok:'
+```
+
+An icon inside a component carries `data-icon`, not sizing or margin classes, and every icon comes
+from `lucide-react`. grep can't see what an icon sits in, so it also prints sized icons that stand
+alone, outside any component (a large glyph in a custom empty state, an icon in a plain `<span>`).
+Those are allowed: mark each with `probe-ok: standalone`. Fix every other hit.

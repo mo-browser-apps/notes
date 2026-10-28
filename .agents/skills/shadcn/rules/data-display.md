@@ -1,6 +1,7 @@
 # Data Display: Tables & Charts
 
-Rules for data-dense surfaces. Two traps dominate here: the vendored data-table doc depends on a
+Rules for data-dense surfaces: tables and charts. Nested, expandable lists (folders, outlines)
+are trees — see [tree.md](./tree.md). Two traps dominate here: the vendored data-table doc depends on a
 package **this project doesn't have**, and the project's chart tokens are a **sequential ramp being
 mistaken for a categorical palette**. Both produce code that looks right and is wrong.
 
@@ -285,7 +286,7 @@ If a sentence conveys it better, write the sentence.
 ## This project's chart palette is a sequential ramp — measured limits
 
 `--chart-1 … --chart-5` are **five steps of one blue hue** (`src/renderer/index.css`). The light ramp
-gets *darker* with each step; the `.dark` ramp is **re-stepped to get *lighter***, because on a dark
+gets *darker* with each step; the dark ramp is **re-stepped to get *lighter***, because on a dark
 surface "more intense" reads as lighter — and because the light ramp's dark end is illegible there.
 Measured from the running app (WCAG contrast; ΔE is CIEDE2000):
 
@@ -329,9 +330,9 @@ What follows from that:
    not something to improvise. Interim options that don't need new tokens: small multiples (one chart
    per series), a single-color ranked bar list (channels, sources, countries), or fold the tail into
    "Other".
-3. **Verify every chart in dark mode, not just light.** Flip the theme (`localStorage.setItem(
-   'vite-ui-theme','dark')` + reload, or the account menu) and screenshot each chart: a series you
-   can't see is a defect even when the token choice "follows the rule".
+3. **Verify every chart in dark mode, not just light.** Flip the theme (Settings → General → Theme)
+   and screenshot each chart: a series you can't see is a defect even when the token choice "follows
+   the rule".
 4. **If you do add or change chart tokens, re-measure.** Check every step for ≥3:1 contrast against
    *both* themes' card and popover surfaces and ≥15 ΔE between adjacent hues in normal vision and
    under deuteranopia/protanopia — with a CVD/contrast checker, not by eye. Probe the live values from
@@ -339,12 +340,16 @@ What follows from that:
 
 ```js
 // agent eval — resolves the tokens to hex through a canvas (getComputedStyle returns oklch() verbatim).
-const c = document.createElement("canvas"); c.width = c.height = 1;
-const x = c.getContext("2d", { willReadFrequently: true });
-const probe = document.createElement("div"); document.body.appendChild(probe);
-const hex = (v) => { probe.style.color = v; x.fillStyle = getComputedStyle(probe).color; x.fillRect(0,0,1,1);
-  const p = x.getImageData(0,0,1,1).data; return "#" + [p[0],p[1],p[2]].map(n => n.toString(16).padStart(2,"0")).join(""); };
-[1,2,3,4,5].map((i) => hex(`var(--chart-${i})`));
+(() => {
+  const c = document.createElement("canvas"); c.width = c.height = 1;
+  const x = c.getContext("2d", { willReadFrequently: true });
+  const probe = document.createElement("div"); document.body.appendChild(probe);
+  const hex = (v) => { probe.style.color = v; x.fillStyle = getComputedStyle(probe).color; x.fillRect(0,0,1,1);
+    const p = x.getImageData(0,0,1,1).data; return "#" + [p[0],p[1],p[2]].map(n => n.toString(16).padStart(2,"0")).join(""); };
+  const colors = [1,2,3,4,5].map((i) => hex(`var(--chart-${i})`));
+  probe.remove();
+  return colors;
+})()
 ```
 
 ---
@@ -384,3 +389,15 @@ A `ChartContainer` with no data renders an empty box with axes — indistinguish
 - **Loading:** a `Skeleton` at the chart's exact aspect ratio (`aspect-video w-full`), so nothing shifts.
 - **Empty:** an `Empty` component in place of the chart ("No data for this range"), not an empty plot.
 - **Too few points:** 1–2 points is not a trend. Show the number instead.
+
+## Probe
+
+- **Every table:** force each of the four states once — `TableSkeletonRows`, `TableEmptyRow`,
+  `TableNoResultsRow` (a filter with no hits), `TableErrorRow` — and screenshot them; sort a column
+  and read `aria-sort` back; open one row's `⋯` menu and run the menu-item measurement in
+  [visual-polish.md](./visual-polish.md#menu-items-never-wrap). Numbers read `text-right tabular-nums`.
+- **Every chart:** screenshot it in dark mode too; a series you can't see is a defect. Hover a point
+  and read the tooltip: formatted values, not raw cents. If you changed chart tokens, run the hex
+  probe in [the palette section](#this-projects-chart-palette-is-a-sequential-ramp--measured-limits)
+  and re-check contrast with a checker.
+- `grep -rn 'react-table\|react-virtual' src/renderer package.json` prints nothing.

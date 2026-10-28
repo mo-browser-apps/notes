@@ -26,8 +26,7 @@ affected behavior before editing, so pre-existing failures are distinguishable f
 - Choose a realistic scenario that exposes the risk, not only the first successful run: include
   cancellation or error recovery when the request makes them matter.
 - Cosmetic changes and behavior-preserving refactors need no new tests, even when the code they
-  touch has none. Verify them with the existing tests and, for user-visible changes, a visual
-  check with `agent screenshot`.
+  touch has none. Verify them with the existing tests and the first step of the ladder below.
 - Skip tests of styling, implementation details, and exhaustive input permutations without a
   concrete risk. Use snapshot assertions only when the exact output is the contract. Keep
   exploratory checks temporary unless they fill a meaningful regression gap.
@@ -35,12 +34,50 @@ affected behavior before editing, so pre-existing failures are distinguishable f
 For a bug fix, see the new or extended test fail for the reported reason before fixing the code,
 then pass with the fix.
 
-## Exercise the real app
+## Verify in the real app
 
-For UI or user-visible changes, use `npm run mobrowser -- agent <command>` to inspect and interact
-with the actual app, following the launch, lifecycle, and CDP fallback rules in `AGENTS.md`;
-`agent --help` lists the commands. Reproduce the affected behavior when possible, verify the
-change, and base the steps of saved scenarios on what you observed.
+Verification is part of every change, in both directions: after you build something, and whenever
+you're asked to check, verify, review, test, or QA existing behavior, which includes how it looks.
+Hunt for defects rather than confirm them away: assume at least one exists and go find it. Passing
+`tsc` proves nothing about how the app looks or behaves.
+
+Launch, restart, stop, and drive the app only as `AGENTS.md` describes, with
+`npm run -s agent -- <command>` (`npm run -s mobrowser -- agent <command>` in a project without an
+`agent` script); `agent --help` lists the commands. Skills and rules never launch the app. Read "What the tooling cannot see" there before trusting any result.
+
+**Size the check to the change.** Each step includes the ones above it.
+
+1. **Cosmetic change** (copy, spacing, a token): run the existing tests, then one `agent screenshot`
+   of the changed surface; both themes when a token changed.
+2. **Behavior change or bug fix**: arm the error listener from `AGENTS.md`, drive the changed path
+   with `agent` commands, and read the outcome back with `agent eval` (the resulting text, state,
+   or file), not only that something appeared. Reproduce a reported bug before fixing it.
+3. **New screen, new controls, or a new overlay**: also run the **`## Probe`** section of every rule
+   you touched (each rule file under `.agents/skills/*/rules/` ends with one), and activate each new
+   control once, including the ones inside menus and dialogs and the ones reached by hovering. For
+   a screen with many controls, crawl it from inside the page with one `agent eval` instead of one
+   command per control. A grep probe hit you keep on purpose gets a `probe-ok: <reason>` comment on
+   the matched line, which every probe filters out; don't re-justify it on each run. When the
+   matched line is a JSX tag, put the comment inside the tag, `<Icon className="size-8"
+   /* probe-ok: standalone */ />` on one line. A `{/* … */}` beside the element can break the
+   build: after an element inside `cond && (…)` it makes a second root. A `//` there is page text.
+4. **Native-shell change** (`src/main`): restart the app first, since main-process changes don't
+   hot-reload, then read the window and menu state back with the desktop-shell probes, and tell the
+   user what the tooling can't see (native menus, tray, Dock, traffic lights).
+
+Batch checks: one `agent eval` that returns an object with every value you need costs one turn;
+ten single-value calls cost ten. Base the steps of saved scenarios on what you observed.
+
+**What's worth protecting becomes a test.** Once a manual check has passed, repeat it by hand only
+for new changes, failures, or unresolved risks. A behavior worth checking again on the next change
+goes into the e2e suite below, which runs hidden, on a fresh profile, without touching the user's
+app or data. Later changes run the suite plus a quick look, not the full manual pass again.
+
+**Report evidence, not impressions.** State what you exercised and what you read back ("`#root`
+mounted, no errors recorded, measured inset 8px"). Never report "works" with a known crash, console
+error, or visible defect: fix it, or flag it to the user explicitly.
+
+## Write regression tests
 
 Save tests in `test/e2e/` as `.test.ts` or `.test.js`, importing `test` and `expect` from
 `@mobrowser/cli/e2e`, not `@playwright/test`. Exercise the real renderer, IPC, main-process, and
@@ -57,8 +94,9 @@ native behavior involved; do not mock or bypass the parts of the app the test is
   `test.info().outputPath()` (including dialog destinations), use `path` for paths, and press
   `ControlOrMeta` for shortcuts. Avoid screenshot comparisons, exact window sizes, and OS-specific
   text. Keep test-owned files and state independent of other tests and the user's environment.
-
-## Write regression tests
+- A test can't click native menu items, so a window or command that is reachable only from the
+  menu needs a trigger the page can reach: a shortcut the renderer handles, a button, or an IPC
+  call.
 
 - Name tests after the behavior they protect (`keeps the draft after a reload`) and files after
   their feature area. Add a short reason or issue link when the rule is not obvious; a future
@@ -90,8 +128,6 @@ native behavior involved; do not mock or bypass the parts of the app the test is
 - Run relevant tests while iterating, then the whole suite before finishing application
   changes. Confirm the intended tests actually executed: skipped scenarios do not verify
   behavior.
-- Once required checks pass, repeat or broaden verification only for new changes, failures, or
-  unresolved risks.
 
 A failing test for behavior the request did not change is a regression: fix the code, not the
 test. When a requested change moves or renames what a test interacts with, update its locators and

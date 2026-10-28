@@ -2,7 +2,7 @@
 name: shadcn
 description: Builds, fixes, and reviews UI in this project with shadcn/ui — composing, styling, debugging, and visually verifying components. Provides the project's shadcn configuration, an app kit of ready-made patterns (page layout, hash router, search/filter fields, data-table parts, status badges, metrics, confirm/undo, copy, save bar, money and date inputs, timeline) to use instead of hand-rolling them, correctness rules, usage patterns, and a visual-polish checklist. Applies when creating, changing, reviewing, testing, QA-ing, or verifying any renderer UI (screens, dialogs, forms, chat, command palette, etc.), when running the app to check how UI looks or behaves, or when working with files under src/renderer/components/ui.
 user-invocable: false
-allowed-tools: Bash(npx shadcn@latest add *), Bash(npx shadcn@latest search *)
+allowed-tools: Bash(npx shadcn@latest search *)
 ---
 
 # shadcn/ui (project-tailored)
@@ -24,7 +24,7 @@ These values are fixed. Don't re-detect them or run `npx shadcn@latest info`.
 - **`style`** `base-nova`, **`baseColor`** `stone`, **`iconLibrary`** `lucide` (`lucide-react`).
 - **`rsc: false`** — a Vite renderer, not Next.js. Never add `"use client"`.
 - **Tailwind v4.** Tokens live in `src/renderer/index.css` — the only stylesheet; edit the OKLCH
-  `:root` / `.dark` blocks at the bottom. `--radius` is `0.625rem` (10px).
+  `:root` / `@media (prefers-color-scheme: dark)` blocks at the bottom. `--radius` is `0.625rem` (10px).
 - **Aliases:** `@/components`, `@/components/ui`, `@/lib/utils`, `@/lib`, `@/hooks` → `src/renderer`.
 - **Everything is installed:** the full shadcn registry **plus the app kit** below, in
   `src/renderer/components/ui`. Import; don't run the CLI to add them.
@@ -89,8 +89,7 @@ route renders.
   `components/<feature>/`, hooks in `hooks/`, helpers in `lib/`. Import via `@/` aliases only.
 - Routing is `@/components/ui/router`: `<Routes>` + `<NavigationGuard />` once in the shell. No
   `useState` view switch, no `react-router`.
-- Providers live once in `App.tsx` (`Toaster` and `TooltipProvider` are mounted). Theme is
-  `useTheme()` from `@/components/theme-provider` — never `next-themes`. Never edit `gen/`.
+- Providers live once in `App.tsx` (`Toaster` and `TooltipProvider` are mounted). Never edit `gen/`.
 
 **Styling** → [styling.md](./rules/styling.md)
 - `className` is for layout, not for overriding component colors or typography.
@@ -147,9 +146,10 @@ route renders.
 - Every overlay opens, closes on Esc and outside-click, **and stays closed**.
 
 **Layout & responsive** → [responsive.md](./rules/responsive.md), [visual-polish.md](./rules/visual-polish.md)
-- The layout must survive the **720×560** minimum window.
-- `useIsMobile()` flips at **768px**, above that minimum, so check the 720–767px band.
-  Never read `window.innerWidth`.
+- The layout must survive the window's **minimum size** (`setMinimumSize` in `src/main/index.ts`),
+  not just its launch size.
+- `useIsMobile()` flips at **768px**. Below it the sidebar is a `Sheet` and `md:` is off, so check
+  every width from the minimum up to 767px. Never read `window.innerWidth`.
 - `max-w-*`, not fixed `w-[Npx]`; grids start at `grid-cols-1`; `min-w-0` on shrinking flex
   children. The shell is `h-svh`.
 - Concentric radii (inner = outer − padding). Rounded overlays get inset padding +
@@ -174,10 +174,12 @@ Each of these compiles and looks almost right. They were all hit in real builds 
 | Putting a tooltip-wrapped control first in an overlay | it eats the first Escape | [interaction.md](./rules/interaction.md#a-tooltip-on-an-overlays-first-focusable-control-eats-the-first-escape) |
 | Nesting a `<form>` in a Dialog/Sheet on a form page | its submit bubbles through the portal and submits the page | [forms.md](./rules/forms.md#a-form-inside-a-dialogsheet-also-submits-the-pages-form) |
 | Building a settings screen | heading + description go **outside** the card, aligned with row labels | [forms.md](./rules/forms.md#settings-groups-heading-and-description-go-outside-the-card) |
-| Adding an app setting, the theme choice, or About | they live in the **Settings window** (`components/settings/*`), not a menu or dialog. The theme is the existing `ThemePicker` preview cards, the only non-`Select` choice. `.light`/`.dark` scope tokens to an element | [settings-window.md](../desktop-shell/rules/settings-window.md), [forms.md](./rules/forms.md#settings-choices-use-select--never-togglegroup-or-toggle), [customization.md](./customization.md#dark-mode) |
+| Adding an app setting, the theme choice, or About | they live in the **Settings window** (`components/settings/*`), not a menu or dialog. The theme is the existing `ThemePicker` preview cards, the only non-`Select` choice | [settings-window.md](../desktop-shell/rules/settings-window.md), [forms.md](./rules/forms.md#settings-choices-use-select--never-togglegroup-or-toggle), [customization.md](./customization.md#dark-mode) |
+| Putting a colored dot or a non-16px icon in a `SidebarMenuButton` | it forces every descendant `svg` to 16px — draw dots as a `span`, or `size-3!` | [visual-polish.md](./rules/visual-polish.md#silent-clipping-and-overlap-traps-in-the-installed-components) |
 | Copying a dashboard block's header | delete the vertical `Separator` next to `SidebarTrigger` | [visual-polish.md](./rules/visual-polish.md#vertical-separators-dont-paste-the-toolbar-divider) |
 | Using `Card` in a scrolling column, `ScrollArea` with `max-h`, line `Tabs` in a scroller, `AlertAction` | silent clipping/overlap | [visual-polish.md](./rules/visual-polish.md#silent-clipping-and-overlap-traps-in-the-installed-components) |
 | Building a fill-height layout | `h-full` / `flex-1 min-h-0` panes overlap when stacked — gate them to the side-by-side breakpoint | [responsive.md](./rules/responsive.md#height-is-a-constraint-too) |
+| Building a tree, an outline, or a nested list | one tab stop for the whole tree (roving tabindex), arrow keys, `aria-level`/`aria-expanded` only on parents; every drag has a keyboard command | [tree.md](./rules/tree.md) |
 | Building a chat / conversation | `MessageScroller`, `Message`, `Bubble`, `Attachment`, `Marker` — no hand-rolled scroll hooks | [chat.md](./rules/chat.md) |
 | Rendering a long list or a heavy chart | ≤200 rows render, 200–2,000 paginate, >2,000 ask; no virtualizer or React Compiler; stable keys | [performance.md](./rules/performance.md) |
 | Using `Select`, `ToggleGroup`, `Slider`, `Accordion` from memory | Base UI APIs differ from Radix | [base-vs-radix.md](./rules/base-vs-radix.md) |
@@ -189,31 +191,11 @@ Each of these compiles and looks almost right. They were all hit in real builds 
 1. **Map the screen to the kit**, then to registry components. Read `component-docs/` and the
    installed `.tsx` for props.
 2. **Compose** following the conventions; open the trap-index rule for each area you touch.
-3. **Verify visually — as a bug hunt.** Assume there are defects and go find them. Launch the app
-   (see `AGENTS.md`) and first confirm `agent eval "document.visibilityState"` is `"visible"`: a
-   window behind others pauses Base UI transitions and returns stale screenshots.
-   - Check light **and** dark, and the 720×560 minimum. The renderer can't resize the window
-     (`window.resizeTo` is a no-op): temporarily change `setSize`, rebuild, and look
-     ([responsive.md](./rules/responsive.md#verify-it-the-window-cant-be-resized-from-the-renderer)).
-     Widening `setMinimumSize` is never the fix.
-   - Measure overlays with `agent eval`; don't eyeball them.
-   - On macOS, confirm nothing sits under the traffic lights.
-   - Checklist: [visual-polish.md](./rules/visual-polish.md).
-4. **Exercise the interactions:**
-   - Type in a filter, then Esc.
-   - Open every overlay, then close it with Esc and with an outside click, and confirm it stays
-     closed.
-   - `Enter` submits; confirms and pending states work.
-   - Details: [interaction.md](./rules/interaction.md).
-5. **Delivery gate: click every control and prove nothing crashed** →
-   [verification.md](./rules/verification.md).
-   - Before clicking, arm the `window.__errors` listener, and re-arm it after every relaunch or
-     `location.reload()` (both discard it). Then click every control, and after each
-     read `#root`'s child count and the listener. **`agent console` only sees `console.*` calls,
-     so an empty console proves nothing.**
-   - Under `agent launch`, relaunch after every `dev:build`; a reload serves the old bundle.
-   - Report which controls you exercised. Never report "works" with a known crash, console error,
-     or visible defect.
+3. **Verify**, sized to the change as [`mobrowser-testing/SKILL.md`](../mobrowser-testing/SKILL.md)
+   describes; launch and drive the app only as `AGENTS.md` says. Run the `## Probe` section of every
+   rule you touched, check light **and** dark, and the window's minimum size
+   ([responsive.md](./rules/responsive.md#probe)). A new screen also gets the crash crawl in
+   [crawl.md](./rules/crawl.md). Report the measured evidence, not "looks fine".
 
 This is also the whole job when asked to check, verify, review, test, or QA existing UI.
 "Works/renders properly" includes visual correctness.
@@ -230,6 +212,7 @@ an existing file without asking, and fix its imports and icons afterwards.
 [composition](./rules/composition.md) ·
 [icons](./rules/icons.md) ·
 [data-display](./rules/data-display.md) ·
+[tree](./rules/tree.md) ·
 [accessibility](./rules/accessibility.md) ·
 [interaction](./rules/interaction.md) ·
 [responsive](./rules/responsive.md) ·
@@ -237,7 +220,7 @@ an existing file without asking, and fix its imports and icons afterwards.
 [visual-polish](./rules/visual-polish.md) ·
 [app-window](./rules/app-window.md) ·
 [chat](./rules/chat.md) ·
-[verification](./rules/verification.md) ·
+[crawl](./rules/crawl.md) ·
 [base-vs-radix](./rules/base-vs-radix.md) ·
 [customization](./customization.md) ·
 [component-docs/](./component-docs/)

@@ -5,7 +5,8 @@ Source of truth: `node_modules/@mobrowser/api/docs/guides/guides/app-windows.md`
 
 ## Size & constraints
 
-MōBrowser's default is `900×700`, centered (this project's scaffold overrides it to `1300×900`).
+MōBrowser's default is `800×600`. The scaffold sets a small starter size for its "Hello, world!"
+screen; replace it.
 **Set an intentional size and a minimum** so the renderer layout can't be squeezed until it breaks.
 
 ```ts
@@ -46,7 +47,7 @@ win.setSize({ width: 400, height: 760 })
 win.setMinimumSize({ width: 340, height: 560 })
 ```
 
-Verify by comparing the running window's aspect ratio to the reference's (see verification.md) — if
+Verify by comparing the running window's aspect ratio to the reference's (see the Probe below) — if
 the reference is portrait and your window is landscape, you sized to your layout, not the reference.
 
 ## Decorations & macOS traffic lights (two halves — keep in sync)
@@ -54,14 +55,20 @@ the reference is portrait and your window is landscape, you sized to your layout
 On macOS the app hides the native titlebar, so web content fills the window **under** the traffic
 lights. There are two halves and **both** must agree:
 
-1. **Main process (this file).** Titlebar visibility, and the traffic-light **position** (center the
-   ~14px cluster on the top toolbar: `y = (toolbarHeight − 14) / 2`) and **visibility**.
+1. **Main process (this file).** Titlebar visibility, and the traffic-light **position** and
+   **visibility**. The position is derived from the renderer's toolbar height in
+   [app-window.md](../../shadcn/rules/app-window.md), which owns the numbers.
+
+> **Trap: hide the titlebar before `setSize`.** Hiding it after `setSize` takes the titlebar's
+> ~32px off the window: `setSize({ height: 600 })` then `setWindowTitlebarVisible(false)` leaves a
+> 568px-tall window on macOS. Call the titlebar setters first, then size the window, and read the
+> size back (`agent eval "[outerWidth, outerHeight]"`).
 
 ```ts
-win.setWindowTitleVisible(false)
+win.setWindowTitleVisible(process.platform !== 'darwin')    // a title in the native bar; none over the content on mac
 win.setWindowTitlebarVisible(process.platform !== 'darwin') // native bar on win/linux, frameless on mac
 if (process.platform === 'darwin') {
-  win.setWindowButtonPosition({ x: 19, y: 17 })   // (48 − 14) / 2 = 17 → centered on a 48px (h-12) toolbar
+  win.setWindowButtonPosition(TRAFFIC_LIGHT_POSITION)   // src/main/window-chrome.ts
   // Hide minimize/zoom for a fixed panel: win.setWindowButtonVisible('minimize', false) etc.
   // Reset to the OS default with: win.setWindowButtonPosition(null)
 }
@@ -86,3 +93,32 @@ win.setScreenCaptureProtectionEnabled(true) // exclude sensitive windows from ca
 ```
 
 Use these deliberately — an always-on-top or transparent window is wrong for a normal app.
+
+## Probe
+
+After a restart (main-process changes don't hot-reload), read the window back:
+
+```bash
+npm run -s agent -- eval "({ outer: [outerWidth, outerHeight], inner: [innerWidth, innerHeight], screen: [screen.width, screen.height] })"
+```
+
+- Outer size ≈ your `setSize` (± chrome). `~800×600` is MōBrowser's built-in default — seeing it means
+  your `setSize` never ran or is being overridden; the scaffold's small "Hello, world!" size means
+  `src/main/index.ts` wasn't changed for the archetype you intended. On macOS a window ~32px shorter
+  than asked means the titlebar was hidden *after* `setSize`.
+- **If a reference image was given, compute the running window's aspect ratio and compare it to the
+  reference's.** Portrait must stay portrait and the ratio should roughly match; a ~380×700 reference
+  (≈ 0.55) rendered as 760×880 (≈ 0.86) means you sized to your layout. Re-`setSize`.
+- **Shrink to the minimum.** The renderer can't resize the window (`window.resizeTo` is a no-op), so
+  resize it from the main process past the minimum and confirm it stops at `setMinimumSize`:
+
+  ```bash
+  npm run -s agent -- resize --width 1 --height 1   # prints the width/height it stopped at
+  ```
+
+  Then look ([responsive.md](../../shadcn/rules/responsive.md#probe)): at that size nothing
+  overflows, clips, or stacks on top of itself. Never edit `setSize` to get there; if the user is
+  watching, `agent resize` the window back to its launch size afterwards.
+- **Traffic lights:** the DOM keep-out and drag-region checks in
+  [app-window.md](../../shadcn/rules/app-window.md#probe); the buttons' baseline needs an OS-level
+  screenshot or the user's eyes.

@@ -231,10 +231,10 @@ dialog reaches the submit button.
 
 ---
 
-## Verify it
+## Probe
 
-Run these against the live app (see [verification.md](./verification.md)) — they catch the majority of
-real defects in seconds.
+Run these against the live app (launched and driven as `AGENTS.md` describes) — they catch the
+majority of real defects in seconds.
 
 **Unnamed interactive controls** (the icon-button defect):
 
@@ -272,5 +272,5 @@ real defects in seconds.
 `document.activeElement.outerHTML` between presses — confirm every control is reachable, the order is
 sensible, and focus never disappears into `body`.
 
-An empty result from each snippet is the pass condition. Report them the way you report the crash
-gate — as evidence, not as "looks accessible".
+An empty result from each snippet is the pass condition. Report the results as evidence, not as
+"looks accessible".

@@ -2,7 +2,7 @@
   "source": "https://ui.shadcn.com",
   "shadcnVersion": "4.13.0",
   "fetchedAt": "2026-07-09T10:43:40.561Z",
-  "count": 106,
+  "count": 88,
   "files": [
     {
       "url": "https://ui.shadcn.com/docs/changelog",
@@ -253,26 +253,6 @@
       "path": ".agents/skills/shadcn/component-docs/components/typography.md"
     },
     {
-      "url": "https://ui.shadcn.com/docs/dark-mode",
-      "path": ".agents/skills/shadcn/component-docs/dark-mode.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/dark-mode/astro",
-      "path": ".agents/skills/shadcn/component-docs/dark-mode/astro.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/dark-mode/next",
-      "path": ".agents/skills/shadcn/component-docs/dark-mode/next.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/dark-mode/remix",
-      "path": ".agents/skills/shadcn/component-docs/dark-mode/remix.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/dark-mode/vite",
-      "path": ".agents/skills/shadcn/component-docs/dark-mode/vite.md"
-    },
-    {
       "url": "https://ui.shadcn.com/docs/directory",
       "path": ".agents/skills/shadcn/component-docs/directory.md"
     },
@@ -281,60 +261,8 @@
       "path": ".agents/skills/shadcn/component-docs/figma.md"
     },
     {
-      "url": "https://ui.shadcn.com/docs/forms",
-      "path": ".agents/skills/shadcn/component-docs/forms.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/forms/formisch",
-      "path": ".agents/skills/shadcn/component-docs/forms/formisch.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/forms/next",
-      "path": ".agents/skills/shadcn/component-docs/forms/next.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/forms/react-hook-form",
-      "path": ".agents/skills/shadcn/component-docs/forms/react-hook-form.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/forms/tanstack-form",
-      "path": ".agents/skills/shadcn/component-docs/forms/tanstack-form.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/installation/astro",
-      "path": ".agents/skills/shadcn/component-docs/installation/astro.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/installation/gatsby",
-      "path": ".agents/skills/shadcn/component-docs/installation/gatsby.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/installation/laravel",
-      "path": ".agents/skills/shadcn/component-docs/installation/laravel.md"
-    },
-    {
       "url": "https://ui.shadcn.com/docs/installation/manual",
       "path": ".agents/skills/shadcn/component-docs/installation/manual.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/installation/next",
-      "path": ".agents/skills/shadcn/component-docs/installation/next.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/installation/react-router",
-      "path": ".agents/skills/shadcn/component-docs/installation/react-router.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/installation/remix",
-      "path": ".agents/skills/shadcn/component-docs/installation/remix.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/installation/tanstack-router",
-      "path": ".agents/skills/shadcn/component-docs/installation/tanstack-router.md"
-    },
-    {
-      "url": "https://ui.shadcn.com/docs/installation/tanstack",
-      "path": ".agents/skills/shadcn/component-docs/installation/tanstack.md"
     },
     {
       "url": "https://ui.shadcn.com/docs/installation/vite",

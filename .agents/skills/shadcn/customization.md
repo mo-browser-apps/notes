@@ -25,17 +25,17 @@ does nothing:
 
 | Section | What it holds | Edit it when |
 | --- | --- | --- |
-| `@import` + `@config` (top) | Tailwind v4, Inter, `tw-animate-css`, `shadcn/tailwind.css` | adding a global dependency |
+| `@import` + `@config` (top) | Tailwind v4, Inter, `tw-animate-css`, `./shadcn.css` (vendored `shadcn/tailwind.css`: the app has no `shadcn` dependency, so if a CLI command adds it back, remove it and the `shadcn/tailwind.css` import) | adding a global dependency |
 | `@layer base` | element rules only (`html`, `*`, `body`) | changing global element defaults |
 | `@layer utilities` | `show-animation`, `.app-drag-region` / `no-drag` | adding a project utility |
 | `@theme inline` | maps tokens → Tailwind utilities (`--color-*`, `--radius-*`) | **registering** a new token |
-| `:root` / `:root[data-platform="mac"]` / `.dark` (bottom, **unlayered**) | the live OKLCH token values, `--radius`, `--titlebar-*` | **changing** a token's value |
+| `:root` / `:root[data-platform="mac"]` / `@media (prefers-color-scheme: dark)` (bottom, **unlayered**) | the live OKLCH token values, `--radius`, `--titlebar-*` | **changing** a token's value |
 
-> The `:root`/`.dark` blocks at the bottom are **outside any `@layer`**, so they beat anything inside
+> The token blocks at the bottom are **outside any `@layer`**, so they beat anything inside
 > `@layer base`. A token redefined in `@layer base` will be overridden and appear to have no effect.
 > Put value changes in the bottom blocks.
 
-Tailwind here is **v4**: there is no `theme.extend.colors` in `tailwind.config.js` to edit. Token
+Tailwind here is **v4**: there is no `tailwind.config.js` and no `theme.extend.colors` to edit. Token
 registration happens in `@theme inline`.
 
 ---
@@ -97,7 +97,7 @@ Three font stacks are the source of truth, defined in the unlayered `:root` bloc
 
 | Token | Stack starts with | Used for |
 | --- | --- | --- |
-| `--font-regular` | `"Inter Variable"`, `"SF Pro Display"`, `-apple-system`, … | all UI text |
+| `--font-regular` | `"SF Pro Display"`, `-apple-system`, `BlinkMacSystemFont`, `"Segoe UI"`, … | all UI text |
 | `--font-monospace` | `"Berkeley Mono"`, `"SFMono Regular"`, `Consolas`, `Menlo`, … | code, numbers, `Kbd` |
 | `--font-emoji` | `"Apple Color Emoji"`, `"Segoe UI Emoji"`, … | **fallback only** |
 
@@ -117,11 +117,13 @@ up:
   `font-sans`; point it at a different family and every title in the app changes at once.
 - **Never apply `--font-emoji` on its own.** It's appended to the text stacks so emoji render in colour
   everywhere; used alone it has no latin coverage and text drops to a serif fallback.
-- **A family in a stack only renders if it's installed.** Only Inter ships with the app — everything
-  else falls through. On a stock macOS machine `--font-monospace` currently resolves to **Menlo**,
-  because Berkeley Mono is a commercial font that isn't bundled and isn't installed.
+- **A family in a stack only renders if it's installed.** No font ships with the app, so text uses
+  the platform's system font. On a stock macOS machine `--font-monospace` currently resolves to
+  **Menlo**, because Berkeley Mono is a commercial font that isn't bundled and isn't installed.
 
 ### Bundling a font: import it from `main.tsx`, not `index.css`
+
+Bundling a font adds a dependency, so ask the user first; the template ships none.
 
 **Do not add `@import "@fontsource-.../..."` to `index.css`.** Tailwind's postcss plugin resolves that
 import and inlines the CSS **without rebasing its `url()`s**, so the `.woff2` files are never emitted —
@@ -131,24 +133,28 @@ app just quietly renders the next family in the stack.
 **Correct** — import it from the JS entry so Vite's asset pipeline emits and hashes the files:
 
 ```tsx
-// src/renderer/main.tsx
-import "@fontsource-variable/inter";
+// src/renderer/main.tsx — <family> is the package the user agreed to
+import "@fontsource-variable/<family>";
 ```
 
-**Verify a font actually loads** (see [verification.md](./rules/verification.md) for the flow) — a
+Then put its family name first in `--font-regular`.
+
+**Verify a font actually loads** (with `agent eval` in the running app) — a
 computed `font-family` string proves nothing, because it lists families whether or not they exist:
 
 ```js
 // agent eval — measure a known-bogus family as the "not found" control.
-const w = (ff) => { const s = document.createElement("span");
-  s.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font-size:40px;font-family:" + ff;
-  s.textContent = "Handgloves 0123 il1"; document.body.appendChild(s);
-  const x = s.getBoundingClientRect().width; s.remove(); return Math.round(x * 100) / 100; };
-document.fonts.ready.then(() => ({
-  stack: w("var(--font-regular)"),
-  wanted: w('"Inter Variable"'),
-  control: w('"NotAFontXYZ"'),   // stack === control  →  the font is NOT loading
-}));
+(() => {
+  const w = (ff) => { const s = document.createElement("span");
+    s.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font-size:40px;font-family:" + ff;
+    s.textContent = "Handgloves 0123 il1"; document.body.appendChild(s);
+    const x = s.getBoundingClientRect().width; s.remove(); return Math.round(x * 100) / 100; };
+  return document.fonts.ready.then(() => ({
+    stack: w("var(--font-regular)"),
+    wanted: w('"<Family> Variable"'),   // the family name the package declares
+    control: w('"NotAFontXYZ"'),   // stack === control  →  the font is NOT loading
+  }));
+})()
 ```
 
 `document.fonts.check()` is **not** a usable availability test here — it returned `true` for families
@@ -160,38 +166,14 @@ Also confirm the build actually emitted the files: `find out/renderer -name "*.w
 
 ## Dark mode
 
-Class-based: `.dark` on `<html>`, driven by this project's **own** provider,
-`src/renderer/components/theme-provider.tsx` (already mounted in `App.tsx`). Read and set the theme
-with its `useTheme()` hook:
+The dark tokens are the `@media (prefers-color-scheme: dark)` block at the bottom of `index.css`;
+Tailwind's `dark:` variant is the same media query. The app sets the theme (Settings → General), so
+pages need no theme code. **Don't add a theme provider, a `.dark` class, or `next-themes`**; read
+the theme with `matchMedia("(prefers-color-scheme: dark)")`.
 
-```tsx
-import { useTheme } from "@/components/theme-provider"
-
-const { theme, setTheme } = useTheme() // "light" | "dark" | "system"
-```
-
-> **Don't add or import `next-themes`.** Upstream's `sonner` wrapper reaches for it; this project's
-> `sonner.tsx` reads the local provider instead, and a second provider would fight over the `.dark`
-> class. The local provider persists to
-> `localStorage` under `vite-ui-theme` and follows `prefers-color-scheme` when set to `system`.
-
-To change the theme, use **`useAppTheme()`** (`@/hooks/use-app-theme`). It sets the provider *and*
-calls the main process's `AppService.SetTheme`, so native chrome, menus and dialogs match. The
-user picks the theme in **Settings → General** (`components/settings/theme-picker.tsx`). Don't add
-other theme menus.
-
-**Several windows share the theme.** The notes window and the Settings window share `localStorage`,
-and the provider listens for the `storage` event, so a theme picked in one window applies in the
-other. Keep that listener if you touch the provider.
-
-**Scoping tokens to an element.** The light token block is `:root, .light`, and the dark one is
-`.dark`. So `<div className="dark">` renders its subtree with the dark tokens inside a light
-window, and `className="light"` does the opposite. The theme previews use this to draw each theme
-with the real tokens. Inside such a subtree use **plain token utilities only**: `dark:` variants
-follow the window's `<html>` class, not the scope.
-
-To theme something for dark mode, **give the token a `.dark` value** — never write `dark:` color
-overrides in components (see [rules/styling.md](./rules/styling.md)).
+To theme something for dark mode, **give the token a value in the dark block** — never write `dark:`
+color overrides in components (see [rules/styling.md](./rules/styling.md)). The shadcn CLI writes
+dark variables into a `.dark {}` block; move them into the media block.
 
 **Verify both themes.** A contrast or surface bug usually shows in exactly one of them, so screenshot
 light *and* dark when you change tokens or build a new surface.
@@ -225,13 +207,15 @@ Changing `--radius` rescales every component at once. The nesting rule that depe
 Two steps, both in `src/renderer/index.css`. There is no Tailwind v3 `tailwind.config.js` step.
 
 ```css
-/* 1. Define the value in the unlayered :root and .dark blocks at the bottom.
+/* 1. Define the value in the unlayered :root and dark blocks at the bottom.
       (Illustrative: this project has no --info token.) */
 :root {
   --info: oklch(0.5 0.13 240);
 }
-.dark {
-  --info: oklch(0.72 0.12 240);
+@media (prefers-color-scheme: dark) {
+  :root {
+    --info: oklch(0.72 0.12 240);
+  }
 }
 ```
 
@@ -279,25 +263,24 @@ info: "bg-info/10 text-info dark:bg-info/20",
 
 ### 4. Wrapper components
 
-Compose primitives into a higher-level component. Note the **Base UI `render` prop** — `asChild` is a
-Radix idiom and does nothing here (see [rules/base-vs-radix.md](./rules/base-vs-radix.md)):
+Compose primitives into a higher-level component. Check [rules/app-kit.md](./rules/app-kit.md)
+first: the kit already ships the common compositions (`ConfirmDialog`, `CopyButton`, `SearchField`, …),
+and a second component with the same job, or the same name, is a bug. Note the **Base UI `render`
+prop** — `asChild` is a Radix idiom and does nothing here (see
+[rules/base-vs-radix.md](./rules/base-vs-radix.md)):
 
 ```tsx
-export function ConfirmDialog({ title, description, onConfirm, children }) {
+// An icon-only toolbar button whose tooltip repeats its accessible name.
+export function ToolbarButton({ label, shortcut, children, ...props }) {
   return (
-    <AlertDialog>
-      <AlertDialogTrigger render={children} />
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>Confirm</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <Tooltip>
+      <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={label} {...props} />}>
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>
+        {label} {shortcut && <Kbd>{shortcut}</Kbd>}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 ```

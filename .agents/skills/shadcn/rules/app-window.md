@@ -47,14 +47,9 @@ y = (H − 14) / 2          // vertical center on the toolbar's control baseline
 x = a small left margin   // ~19; also sets how far the cluster extends right
 ```
 
-```ts
-// src/main/index.ts — macOS only; other platforms show the native titlebar.
-win.setWindowTitlebarVisible(process.platform !== 'darwin')
-if (process.platform === 'darwin') {
-  // Toolbar is h-12 (48px): (48 − 14) / 2 = 17. Keep in sync with the CSS vars below.
-  win.setWindowButtonPosition({ x: 19, y: 17 })
-}
-```
+The project keeps the result in one constant, `TRAFFIC_LIGHT_POSITION = { x: 19, y: 17 }` in
+`src/main/window-chrome.ts`, which every window passes to `setWindowButtonPosition` on macOS
+(other platforms show the native titlebar). Change it there, never per window.
 
 **If you change the toolbar height, recompute `y`** and the CSS variables below — they are a matched set.
 
@@ -185,14 +180,14 @@ The Settings window (see the desktop-shell rule
 [settings-window.md](../../desktop-shell/rules/settings-window.md)) uses the **same** traffic-light
 position and `--titlebar-*` values. Its shape differs in two ways:
 
-- **`Sidebar collapsible="none"`.** It's a 680px window (resizable down to 520px), below the 768px mobile breakpoint,
+- **`Sidebar collapsible="none"`.** It's a 560px window (resizable down to 520px), below the 768px mobile breakpoint,
   where `offcanvas` would turn into an overlay sheet. The sidebar is always shown, so the content
   header never needs the `--titlebar-traffic-width` shift.
 - **An empty `SidebarHeader className="app-drag-region h-12"` on macOS** holds the traffic lights.
   The section list starts below it, and the content header (`h-12`, `app-drag-region`) carries the
   section title on the buttons' baseline.
 
-## Verify it
+## Probe
 
 The traffic lights are **native OS chrome, not DOM** — `agent screenshot` captures only the web content,
 so it will **not** show the buttons. Verify in two ways:
@@ -202,11 +197,13 @@ so it will **not** show the buttons. Verify in two ways:
 
 ```js
 // Anything clickable whose top-left enters the reserved corner is overlapped by the traffic lights.
-const w = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--titlebar-traffic-width"));
-const h = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--titlebar-inset"));
-[...document.querySelectorAll('button, a, input, [role="button"]')]
-  .map((el) => ({ el: el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 20), r: el.getBoundingClientRect() }))
-  .filter(({ r }) => r.top < h && r.left < w && r.width > 0)
+(() => {
+  const w = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--titlebar-traffic-width"));
+  const h = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--titlebar-inset"));
+  return [...document.querySelectorAll('button, a, input, [role="button"]')]
+    .map((el) => ({ el: el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 20), r: el.getBoundingClientRect() }))
+    .filter(({ r }) => r.top < h && r.left < w && r.width > 0);
+})()
 ```
 
 An empty result means the corner is clear. Also confirm the toolbar toggle's vertical center matches the
@@ -223,13 +220,15 @@ toolbar's control baseline (`H / 2`) so it lines up with the (repositioned) butt
   control must be `no-drag`, and the empty chrome must be `drag`.
 
 ```js
-const region = (sel) => { const el = document.querySelector(sel); return el && getComputedStyle(el).getPropertyValue("-webkit-app-region"); };
-({
-  header: region("header"),                             // "drag"
-  toggle: region('[data-sidebar="trigger"]'),           // "no-drag"
-  search: region('header [data-slot="input-group"]'),   // "no-drag"
-  sidebarTop: region('[data-slot="sidebar-header"]'),    // "drag"
-})
+(() => {
+  const region = (sel) => { const el = document.querySelector(sel); return el && getComputedStyle(el).getPropertyValue("-webkit-app-region"); };
+  return {
+    header: region("header"),                             // "drag"
+    toggle: region('[data-sidebar="trigger"]'),           // "no-drag"
+    search: region('header [data-slot="input-group"]'),   // "no-drag"
+    sidebarTop: region('[data-slot="sidebar-header"]'),    // "drag"
+  };
+})()
 ```
 
 Anything interactive reading `drag` (or `none` inside a drag container) is a click-swallowing bug — add it

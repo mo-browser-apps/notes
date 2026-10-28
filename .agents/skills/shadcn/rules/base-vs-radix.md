@@ -311,3 +311,13 @@ Radix requires `type="single"` or `type="multiple"` and supports `collapsible`. 
   <AccordionItem value="item-1">...</AccordionItem>
 </Accordion>
 ```
+
+## Probe
+
+```bash
+grep -rnE --include='*.tsx' -e '\basChild\b' -e 'onValueChange=\{[^}]*\.target' -e '@radix-ui/' src/renderer | grep -v 'components/ui/' | grep -v 'probe-ok:'
+```
+
+The command must print nothing. Then open each `Select`, `ToggleGroup`, `Slider`, and `Accordion`
+you touched in the running app and read its value back with `agent eval` after one interaction —
+a Radix-shaped handler compiles but never updates the state.

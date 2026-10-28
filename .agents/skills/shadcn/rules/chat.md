@@ -225,3 +225,12 @@ re-implementing the scroller: `useMessageScroller`,
 `useMessageScrollerVisibility`, and `useMessageScrollerScrollable`. They come
 from the auto-installed `@shadcn/react` dependency, so there's nothing extra to
 install. Reach for them only when composition can't express what you need.
+
+## Probe
+
+- `grep -rnE 'scrollTop|scrollIntoView|ResizeObserver|useStickToBottom' src/renderer/components | grep -v components/ui/ | grep -v 'probe-ok:'`
+  prints nothing — scrolling is `MessageScroller`'s job.
+- In the running app: scroll up, append a message (or stream one), and confirm the view stays put and
+  `MessageScrollerButton` appears; click it and confirm the view is at the end; scroll to the end and
+  append again — the view follows. Read `scrollTop` and `scrollHeight` back with `agent eval` rather
+  than judging a screenshot.

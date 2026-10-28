@@ -65,6 +65,12 @@ dashboards), `detail` (a record with a side column), `narrow` (single-column edi
 (the centered `max-w-2xl` column). `Page` also leaves `pb-16` for the floating `SaveBar` /
 `BulkActionBar`.
 
+**`Page` is for document-like screens that scroll as one column.** A full-height app made of panes
+(a mail client, an editor, an outliner, a chat: a list beside a detail, each pane scrolling on its
+own) doesn't use it. Lay the panes out with `ResizablePanelGroup` or a `flex` row in the `h-svh`
+shell, give each pane `min-h-0` and its own `overflow-y-auto`, and use `PageTitle` alone for the
+screen's `h1`. A settings screen or a record's detail page inside such an app still uses `Page`.
+
 ```tsx
 <Page size="detail">
   <PageHeader>
@@ -87,7 +93,9 @@ dashboards), `detail` (a record with a side column), `narrow` (single-column edi
 </Page>
 ```
 
-- `PageTitle` is the screen's **only `h1`** and truncates; section titles are `h2` (`CardTitle`
+- `PageTitle` is the screen's **only `h1`** and truncates. When the design gives one screen's title
+  its own color or size (a list name in the list's color), pass it in `className` on `PageTitle`; don't
+  write a second `h1`; section titles are `h2` (`CardTitle`
   renders a `div` with no `render` prop — add `role="heading" aria-level={2}` when it's a
   section heading).
 - `PageSplit` stacks below `lg` and puts the aside in a 20rem (22rem at `xl`) column above it.
@@ -137,7 +145,10 @@ blocker. URLs look like `#/orders/ord_1042?tab=timeline`.
 Esc clears (and stops there — it won't also close a dialog it sits in); Esc on an empty field blurs
 and passes through. A ✕ clear button (named "Clear {label}") appears when non-empty. `shortcut` makes `/` focus it
 from anywhere and shows a `Kbd` hint. `label` sets the accessible name (defaults to the
-placeholder). Your `onKeyDown` is composed, not replaced.
+placeholder). Your `onKeyDown` is composed, not replaced, and a `ref` you pass is merged with the
+internal one, so `ref.current?.focus()` from your own shortcut (⌘F) keeps Esc and `/` working. It's
+an `<input type="search">`, so its role is **`searchbox`**, not `textbox`: locate it in tests with
+`getByRole("searchbox", { name: … })`.
 
 ### `FacetedFilter`
 
@@ -347,7 +358,21 @@ currency symbol prefix, ISO code suffix when the symbol is ambiguous. `parseMone
 </Field>
 ```
 
-ISO string or `null`; keeps the time of day when changing an existing value.
+- **A moment in time** (the default): an ISO timestamp or `null`; changing an existing value keeps
+  its time of day.
+- **A calendar day** (`dateOnly`): `"yyyy-MM-dd"` or `null`, the same day in every time zone. Use it
+  for due dates, birthdays, and anything a user thinks of as a day; never convert a timestamp to a
+  day at the edge yourself.
+- **Quick picks:** `presets={DATE_PICKER_PRESETS}` (Today, Tomorrow, Next week) or your own
+  `{ label, date: () => Date }[]`.
+- **Open it from code:** pass `open` and `onOpenChange`, for example from a "Choose Date…" menu
+  command, instead of clicking its trigger through the DOM.
+
+```tsx
+const [open, setOpen] = React.useState(false)
+<DatePicker id="due" dateOnly presets={DATE_PICKER_PRESETS} open={open} onOpenChange={setOpen}
+  value={task.due} onValueChange={(due) => update({ due })} />
+```
 
 ## Records — `Timeline` and `NoteComposer`
 
@@ -415,7 +440,7 @@ const [view, setView] = React.useState<"list" | "detail">("list")   // not a URL
 
 ---
 
-## Review: find hand-rolled kit patterns
+## Probe: find hand-rolled kit patterns
 
 Run this over the feature code before delivering (and when reviewing someone else's). Each hit is a
 pattern the kit already owns — replace it, don't justify it:
@@ -433,8 +458,15 @@ grep -rnE --include='*.tsx' --include='*.ts' \
   -e 'aria-sort' \
   -e 'type="(number|date)"' \
   -e 'colSpan=' \
-  components hooks lib | grep -v '^components/ui/'
+  components hooks lib | grep -v '^components/ui/' | grep -v 'probe-ok:'
 ```
 
-Legitimate exceptions are rare (an Esc handler for an inline editor; `type="number"` for a quantity,
-not money) — say why in a comment when you keep one.
+Legitimate exceptions are few. The common one is the Esc handler of an inline editor, which
+[interaction.md](./interaction.md#inline-editing-enter-commits-esc-reverts) requires, so expect one
+hit per editor; another is `type="number"` for a quantity, not money. Keep one by putting a
+`probe-ok: <reason>` comment **on the matched line**, which the probe filters out (see
+[the testing skill](../../mobrowser-testing/SKILL.md#verify-in-the-real-app)):
+
+```tsx
+if (event.key === "Escape") revert() // probe-ok: inline title editor reverts on Esc
+```

@@ -11,10 +11,9 @@ src/renderer/
   index.html               Vite HTML entry.
   components/
     ui/                    shadcn registry mirror + marked local extensions — no app code.
-    theme-provider.tsx     app-level component (this is the pattern to follow)
     <feature>/…            your screens, panels, forms, feature components
   hooks/                   shared hooks: use-<thing>.ts
-  lib/                     framework-free helpers: utils.ts (cn), tools.ts (IPC invoke)
+  lib/                     framework-free helpers: utils.ts (cn), platform.ts (isMac, ⌘/Ctrl shortcuts)
   proto/                   .proto IPC contracts (source; see below)
   gen/                     GENERATED — gitignored, never edit by hand
   public/                  static assets served as-is
@@ -138,17 +137,18 @@ Aliases: `@/components`, `@/components/ui`, `@/lib`, `@/lib/utils`, `@/hooks`.
 > resolves in the other process type-checks fine and then fails at build time. Inside `src/renderer`,
 > `@/` always means `src/renderer`.
 
+The two processes share **types**, never modules: the generated code in `src/main/gen/` and
+`src/renderer/gen/` comes from the same `.proto` files ([IPC](#ipc-proto-is-the-source-gen-is-not)).
+Never import `src/main` from the renderer or the other way round, and never reach across with `../`.
+
 ---
 
 ## Providers go in `App.tsx`, once
 
-`App.tsx` owns the provider stack (`ThemeProvider` → `TooltipProvider` → content + `Toaster`). Add a
+`App.tsx` owns the provider stack (`TooltipProvider` → content + `Toaster`). Add a
 new provider there rather than wrapping a subtree in a screen — a provider mounted twice, or mounted
-below a consumer, is a classic on-click crash (see [verification.md](./verification.md)).
+below a consumer, is a classic on-click crash (see [crawl.md](./crawl.md)).
 
-- **Theme:** use the project's own `useTheme()` from `@/components/theme-provider`. **Don't add or
-  import `next-themes`** — upstream wrappers reach for it, and a second provider would fight over
-  the `.dark` class.
 - **Toasts:** `<Toaster />` is already mounted; just call `toast()` from `sonner`.
 - **Tooltips:** `TooltipProvider` is already mounted; don't nest another one.
 
@@ -163,10 +163,28 @@ still on the old module read the old, empty one. The result is "useX must be use
 XProvider" and a blank window. Any upstream change triggers this, including `npm run gen` or
 `npm run test:e2e` rewriting `gen/` with identical bytes while `npm run dev` is open.
 
-The worked example is `components/notes/notes-actions-context.ts` and `notes-actions.tsx`. To
-check, with the app open, arm the `window.__errors` listener (see
-[verification.md](./verification.md)), run `npm run gen`, and confirm `#root` still has children
-and nothing was recorded.
+**A module-level store has the same problem.** A store created when its module loads
+(`export const store = createStore()`, with its `ipc` subscription and its first load) is created
+again when Vite re-runs the module, while mounted components keep the old instance; the window then
+waits on a load that never finishes. Start the work on the **first subscription** instead of at
+import: the store loads when a component subscribes, and a re-run module starts over cleanly.
+
+```ts
+// Incorrect: loads at import; a hot re-run leaves components on a store nobody updates.
+export const tasks = createTaskStore()
+void tasks.load()
+
+// Correct: the first subscriber starts the load; the subscribe function is what components use.
+export function subscribeToTasks(listener: () => void) {
+  if (listeners.size === 0) void load()
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+```
+
+To check either, with the app open, arm the `window.__errors` listener from `AGENTS.md`, run
+`npm run gen`, and confirm `#root` still has children, the screen still shows data, and nothing was
+recorded.
 
 **Font packages are imported in `main.tsx`, not `index.css`** — a `@fontsource` `@import` inside
 `index.css` gets inlined by Tailwind's postcss plugin without rebasing its `url()`s, so the `.woff2`
@@ -209,9 +227,107 @@ const { name, version } = await ipc.app.GetAppInfo({})
 disappears on the next `npm run gen`, and the folders may simply be missing on a fresh checkout until
 you run it.
 
+### The `.proto` files are the domain model
+
+Everything that crosses between the processes is a protobuf message, and the `.proto` files are the
+one description of the app's domain: its entities, their fields, the commands that change them, and
+the events that report changes. The generated types are the app's types, in both processes.
+
+- **Model the domain in proto.** An entity is a message (`Task`), a closed set is an enum
+  (`Priority`, with `PRIORITY_UNSPECIFIED = 0` first), a list is `repeated`, a reference is the
+  other entity's id, and a value that is one of several kinds is a `oneof`. Group a domain area in
+  one file: `task.proto` holds `Task`, its enums, and `TaskService`.
+- **Use the generated types; don't write parallel ones.** Import `Task` from `@/gen/task` in the
+  renderer and from `./gen/task` in the main process. Never hand-write a TypeScript interface that
+  mirrors a message, never pass a JSON string or another encoding inside a `string` or `bytes`
+  field, and never route data around IPC through `localStorage` or the URL.
+- **Every RPC has its own request and response messages** (`CreateTaskRequest`,
+  `CreateTaskResponse`), even when they start small, so either can grow without touching other
+  calls. A response carries what the caller needs next: the changed entity or the new state, and
+  the store's revision.
+- **A change of several kinds is a `oneof`, a batch is `repeated`:**
+
+  ```proto
+  message TaskChange {
+    oneof change {
+      Task created = 1;
+      Task updated = 2;
+      string deleted_id = 3;
+      MoveTask moved = 4;
+    }
+  }
+  message ApplyRequest {
+    int64 base_revision = 1;
+    repeated TaskChange changes = 2;
+  }
+  message ApplyResponse {
+    int64 revision = 1;
+    repeated Task tasks = 2;
+    bool conflict = 3;   // base_revision was stale; nothing was applied
+  }
+  ```
+
+- **Changes the renderer didn't ask for arrive on a stream.** A service method like
+  `rpc OnTasksChanged(google.protobuf.Empty) returns (stream TasksChanged)` is runtime-owned
+  pub/sub: `ipc.registerService(TaskServiceDescriptor)` with no implementation returns its
+  publisher, and every window that subscribes receives what the main process publishes.
+  MenuService's `OnCommand` is the worked example
+  ([menu.md](../../desktop-shell/rules/menu.md#renderer-commands-the-menuservice-pattern)).
+
+**The main process owns the logic, and the renderer sends intents.** Rules that decide the data
+(validation, ordering, derived fields) run in the main process, once. The renderer sends what
+the user did as a request and renders what comes back; it may filter, sort, and group for display.
+With nothing to run in both places, nothing needs sharing beyond the generated types.
+
+**The renderer names a new record.** An id is a name, not a rule, so the renderer creates it with
+`crypto.randomUUID()` and sends it in the create change. The UI can then refer to the record
+before the reply arrives: Enter creates a task and Tab indents it under the one above, as two
+changes queued back to back
+([app-data.md](../../desktop-shell/rules/app-data.md#optimistic-updates-send-one-at-a-time)). The
+main process checks the id like any other field.
+
+**Validate every request in the main process.** The renderer isn't trusted to send a well-formed
+message: check required fields, ids that must exist, ids a create must not reuse (a well-formed
+UUID that isn't in the store yet), and enum values (a value the main process doesn't know arrives
+as `UNRECOGNIZED`, `-1`).
+
+**Evolve the schema without breaking saved data or an older window.** Add fields with new
+numbers. Never change a field's number or type, and never reuse one: when you remove a field, list
+its number and name under `reserved`. A new enum value goes at the end, and code handles values it
+doesn't know.
+
+**What the generated code looks like.** ts-proto generates a TypeScript interface per message,
+plus a value with `encode`, `decode`, `toJSON`, `fromJSON`, and `fromPartial`. Field names become
+camelCase (`base_revision` → `baseRevision`). `int64` arrives as a `number`. A `oneof` becomes
+optional properties of which exactly one is set (`change.created`, `change.deletedId`). An enum is a
+numeric TypeScript enum with `UNRECOGNIZED = -1`, and the enum's name functions (`commandToJSON`)
+turn a value into its proto name for logs and menu item ids. Read the generated file once before
+using a message you haven't used.
+
 ---
 
 ## One more file that is not yours
 
 `src/main/` is the native shell — window, menu, tray. It has its own skill:
 [desktop-shell](../../desktop-shell/SKILL.md). Don't configure window behavior from the renderer.
+
+## Probe
+
+```bash
+cd src/renderer
+grep -rnE --include='*.tsx' --include='*.ts' \
+  -e '"use client"' -e 'next-themes|next/(link|image|navigation)' -e 'react-router|hashchange' \
+  -e 'from "\.\./' \
+  components hooks lib | grep -v '^components/ui/' | grep -v 'probe-ok:'
+cd ../..
+grep -nE '^\s*(string|bytes) +\w*(json|payload|blob)\w* *=' src/*/proto/*.proto
+git rev-parse --show-toplevel
+git status --short src/renderer/components/ui
+```
+
+The greps must print nothing: relative `../` imports go through `@/`, and no proto field carries
+JSON or another encoding of data the `.proto` files should describe. `components/ui` must show no
+app code — a changed registry file carries a `Local fix:` comment or is reverted. `git status` only
+checks that when `git rev-parse` prints this project's own folder; in another repository that
+ignores the project, it prints nothing whatever changed, so say the check didn't run. Then, with the
+app open, the `npm run gen` check above: `#root` still mounted, nothing in `window.__errors`.

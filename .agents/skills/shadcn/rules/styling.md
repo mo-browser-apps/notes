@@ -66,6 +66,14 @@ it (unreadable in dark mode). A neutral state (draft, archived) is `variant="sec
 color. Adding any *other* semantic color is a design decision — ask first (see
 [customization.md](../customization.md#adding-a-custom-color)).
 
+**Colors the user picks for their own data are not semantic colors.** When the spec lets the user
+color a list, a tag, or a calendar, the colors are already decided: don't ask. Add them as one
+numbered set of tokens (`--swatch-1` … `--swatch-N`, 8–12 distinct hues) with a value for each
+theme, register them the same way, and store the token's number with the record, never a hex value,
+so the color follows the theme. Measure each in both themes before using it: at least 3:1 against
+`--background` and `--card` for a dot, an icon, or a fill, and 4.5:1 for text. Use the set for
+nothing but user data.
+
 ---
 
 ## Built-in variants first
@@ -110,6 +118,9 @@ To customize a component's appearance, prefer these approaches in order:
 1. **Built-in variants** — `variant="outline"`, `variant="destructive"`, etc.
 2. **Semantic color tokens** — `bg-primary`, `text-muted-foreground`.
 3. **CSS variables** — define custom colors in the global CSS file (see [customization.md](../customization.md)).
+
+The one documented exception is a screen title the design colors or sizes on purpose: that goes in
+`className` on `PageTitle` ([app-kit.md](./app-kit.md#page-layout--pagetsx)).
 
 ---
 
@@ -195,3 +206,17 @@ For scroll-aware edge fading on a scroll container, use `scroll-fade` (and the a
 ```tsx
 <span className="shimmer">Thinking…</span>
 ```
+
+## Probe
+
+```bash
+cd src/renderer
+grep -rnE --include='*.tsx' --include='*.ts' \
+  -e '(bg|text|border|ring|fill|stroke)-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone)-[0-9]+' \
+  -e 'dark:(bg|text|border)-' -e 'space-[xy]-' -e 'z-\[?[0-9]' -e 'bg-(success|warning)\b' \
+  components hooks lib | grep -v '^components/ui/' | grep -v 'probe-ok:'
+```
+
+The command must print nothing: raw palette colors, manual `dark:` color overrides, `space-*`,
+`z-index` on overlays, and filled `success`/`warning` surfaces are each a defect. Then screenshot the
+surface in both themes — a token mistake usually shows in exactly one of them.

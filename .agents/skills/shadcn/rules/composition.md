@@ -148,7 +148,7 @@ change the user wants to see. Pass `closeOnClick` on those items:
 </DropdownMenuRadioGroup>
 ```
 
-When verifying, open every menu and measure the items: `white-space` is `nowrap`, `scrollHeight === clientHeight`, and height is one line (line-height + vertical padding), not two. See [visual-polish.md](./visual-polish.md#menu-items-never-wrap).
+Open every menu and measure the items with the snippet in [visual-polish.md](./visual-polish.md#menu-items-never-wrap): `white-space` is `nowrap`, `scrollHeight === clientHeight`, and height is one line.
 
 ---
 
@@ -189,8 +189,8 @@ toast.success("Changes saved.")
 toast.error("Something went wrong.")
 ```
 
-For **Undo** after a destructive action use the kit's `undoToast(message, onUndo)` from
-`@/components/ui/confirm-dialog`, and for copy feedback `CopyButton` — see [app-kit.md](./app-kit.md#actions).
+Undo after a destructive action and copy feedback are kit components, not hand-made toasts — see
+[app-kit.md](./app-kit.md#actions).
 
 ---
 
@@ -312,3 +312,20 @@ Always include `AvatarFallback` for when the image fails to load:
 | `<hr>` or `<div className="border-t">` | `<Separator />` |
 | `<div className="animate-pulse">` with styled divs | `<Skeleton className="h-4 w-3/4" />` |
 | `<span className="rounded-full bg-green-100 ...">` | `<Badge variant="secondary">` |
+
+## Probe
+
+Most composition mistakes crash on open or render nothing, so the [crash crawl](./crawl.md) finds
+them. Before that, grep the feature code for the ones that compile:
+
+```bash
+cd src/renderer
+grep -rnE --include='*.tsx' -e '\basChild\b' -e '<CommandInput' -e '<DropdownMenuLabel' \
+  -e '<(Dialog|Sheet|Drawer)Content' -e 'isLoading|isPending' components | grep -v '^components/ui/' | grep -v 'probe-ok:'
+```
+
+For each hit: `asChild` → `render`; a `CommandInput` has a `<Command>` ancestor; a
+`DropdownMenuLabel` sits inside a `DropdownMenuGroup`; every `DialogContent`/`SheetContent`/
+`DrawerContent` has a Title (`sr-only` if hidden); `isLoading`/`isPending` on a `Button` is not a
+prop — compose `Spinner` + `disabled`. Then open every menu you touched and run the item
+measurement in [visual-polish.md](./visual-polish.md#menu-items-never-wrap).

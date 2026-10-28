@@ -196,7 +196,7 @@ row**.
 ```tsx
 <Field orientation="horizontal">
   <FieldLabel htmlFor="name">Full name</FieldLabel>
-  <Input id="name" className="w-64" value={name} onChange={onChange} />
+  <Input id="name" className="w-64 shrink-0" value={name} onChange={onChange} />
 </Field>
 ```
 
@@ -209,9 +209,17 @@ control to the right):
     <FieldLabel htmlFor="title">Title</FieldLabel>
     <FieldDescription>Your job title or role</FieldDescription>
   </FieldContent>
-  <Input id="title" className="w-64" placeholder="Software engineer" />
+  <Input id="title" className="w-64 shrink-0" placeholder="Software engineer" />
 </Field>
 ```
+
+> **Trap: the label's flex comes from the `Field`, not the label.** `orientation="horizontal"` sets
+> `*:data-[slot=field-label]:flex-auto` on the `Field`, and that selector beats a class on the label
+> itself, so `<FieldLabel className="flex-none">` changes nothing. The label then shares the shrink
+> with the control: `Input` has `min-w-0`, so a long label squeezes a `w-64` input below its width.
+> Give a fixed-width control `shrink-0` (the label wraps instead), and to change the label's flex,
+> put the variant on the `Field`: `<Field orientation="horizontal"
+> className="*:data-[slot=field-label]:flex-none">`. A screenshot is the only place this shows.
 
 **Tighten the row spacing: use `gap-3` on `FieldGroup`.** `FieldGroup` defaults to `gap-7` (~28px),
 which is built for tall, standalone form sections — between compact settings rows it looks sparse and
@@ -516,3 +524,16 @@ const saveProduct = (e: React.FormEvent<HTMLFormElement>) => {
 
 Alternatively render the dialog *outside* the page `<form>` (as a sibling). Verify by submitting the
 dialog with **Enter** and checking the page's SaveBar is still showing its unsaved state.
+
+## Probe
+
+- **Labels:** the unlabelled-control snippet in [accessibility.md](./accessibility.md#probe) prints
+  nothing — every `Input`/`Select`/`Textarea` has a `FieldLabel htmlFor` or an `aria-label`.
+- **Validation:** submit an invalid form; the control reads `aria-invalid="true"`, its `Field` has
+  `data-invalid`, and a message is visible.
+- **A form inside a Dialog/Sheet on a form page:** submit the dialog with **Enter** and read the
+  page's `SaveBar` back — it must still show the page's own unsaved state, not "saved".
+- **Settings screens:** `grep -rnE '<ToggleGroup|<Toggle ' src/renderer/components/settings | grep -v 'probe-ok:'` prints
+  nothing (choices are `Select`, on/off is `Switch`, the theme picker is the one exception).
+
+Enter submits and pending disables are exercised in [interaction.md](./interaction.md#probe).

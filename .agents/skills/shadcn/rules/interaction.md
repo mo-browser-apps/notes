@@ -112,18 +112,18 @@ closes the *tooltip* — the sheet needs a second press. Users read that as "Esc
 click the way `DropdownMenu` does. Control `open` and close it before navigating (pattern in
 [composition.md](./composition.md#overlay-height-and-navigation)).
 
-### Always test: open → Esc closes → open → outside-click closes → it STAYS closed
+### Open → Esc closes → open → outside-click closes → it STAYS closed
 
 Every overlay you add or touch must pass this. Because a reopen loop looks fine until you try to leave,
 **exercise the close paths, then confirm it stays closed** (don't just confirm it opens):
 
 ```bash
 # open, then Escape
-npm run mobrowser -- agent eval "document.querySelector('header button[aria-label=Search]').click()"
-npm run mobrowser -- agent press-key --key Escape
-npm run mobrowser -- agent eval "!!document.querySelector('[role=dialog]')"   # expect false
+npm run -s agent -- eval "document.querySelector('header button[aria-label=Search]').click()"
+npm run -s agent -- press-key --key Escape
+npm run -s agent -- eval "!!document.querySelector('[role=dialog]:not([data-closed])')"   # expect false
 # and a moment later it's still closed (no reopen loop)
-npm run mobrowser -- agent eval "!!document.querySelector('[role=dialog]')"   # expect false
+npm run -s agent -- eval "!!document.querySelector('[role=dialog]:not([data-closed])')"   # expect false
 ```
 
 > **Automation timing:** `.click()` schedules a React re-render — read the open/closed state in a
@@ -163,27 +163,9 @@ npm run mobrowser -- agent eval "!!document.querySelector('[role=dialog]')"   # 
 ## Destructive actions confirm, and offer undo
 
 Delete/remove/reset must confirm first (never a bare button). Where feasible, after the action
-offer **Undo**. Both halves are in the kit — don't compose a fresh `AlertDialog` per call site:
-
-```tsx
-import { ConfirmDialog, undoToast } from "@/components/ui/confirm-dialog"
-
-<ConfirmDialog
-  open={open}
-  onOpenChange={setOpen}
-  title={`Delete ${project.name}?`}
-  description="Its runs and files are removed. This can't be undone after 30 days."
-  confirmLabel="Delete project"
-  destructive
-  onConfirm={async () => {
-    await remove(project.id)                       // throw → dialog stays open
-    undoToast(`${project.name} deleted`, () => restore(project))
-  }}
-/>
-```
-
-`ConfirmDialog` disables both buttons with a spinner while `onConfirm` runs and can't be dismissed
-mid-flight, so the action can't double-fire. Label the confirm button verb + object.
+offer **Undo**. Both halves are in the kit, `ConfirmDialog` and `undoToast`, with the usage and the
+pending-state behavior in [app-kit.md](./app-kit.md#confirmdialog-and-undotoast). Don't compose a
+fresh `AlertDialog` per call site.
 
 ---
 
@@ -208,8 +190,8 @@ Any action that triggers async work (save, load, invite) must reflect a pending 
 
 `navigator.clipboard.writeText` **rejects** with `NotAllowedError: Document is not focused` whenever
 the window isn't focused (a background window, automation, a click that moved focus elsewhere). An
-un-awaited promise with no `.catch` becomes an *unhandled rejection* — a console error, which the
-[verification](./verification.md) gate treats as a defect.
+un-awaited promise with no `.catch` becomes an *unhandled rejection*, which the error listener from
+`AGENTS.md` records as a defect.
 
 **Incorrect:**
 
@@ -244,3 +226,18 @@ focusable element — don't fight it with `autoFocus` on the wrong element.
 
 If typing in a filter triggers expensive work (large list re-render, async fetch), debounce it
 (~200–300ms). Keep the input itself controlled and responsive; debounce only the derived work.
+
+## Probe
+
+Exercise, don't look — none of this shows in a screenshot:
+
+- **Every overlay you added or touched:** open → Escape → gone; open → outside click → gone; still
+  gone a moment later ([the check above](#open--esc-closes--open--outside-click-closes--it-stays-closed)).
+  One Escape must do it: a tooltip on the first focusable control eats the first press.
+- **Every filter:** type, then Escape clears it and the ✕ appears while it has a value.
+- **Every form:** Enter submits; a second Enter while pending does nothing; Cancel resets the draft.
+- **Every destructive action:** the confirm dialog opens; after confirming, an Undo toast appears.
+- **Every copy control:** click it with the window unfocused — no unhandled rejection in
+  `window.__errors`.
+
+Read each state back with `agent eval` in a separate call from the click.

@@ -1,12 +1,9 @@
 # Visual Polish & Spacing
 
 Rules for making UI look intentional and finished. These defects compile and pass type-checks — they
-are only visible when rendered, so **verify visually** (build → launch → screenshot → review) after
-building non-trivial UI, and whenever asked to check/verify/QA existing UI.
-
-**Hunt for visual bugs; don't confirm.** When reviewing, assume at least one visual defect exists and
-try to find it. A confirmation mindset produces false "looks clean/flush" passes. Enumerate suspected
-issues, then measure to confirm or dismiss each (see "Measure overlays — don't eyeball them").
+are only visible when rendered, so screenshot and **measure** (see the Probe at the end) after
+building non-trivial UI, and whenever asked to check/verify/QA existing UI. Enumerate suspected
+issues, then measure to confirm or dismiss each; "looks clean/flush" is not a finding.
 
 See [styling.md](./styling.md) for color/token rules and [customization.md](../customization.md) for
 the radius/spacing token scale.
@@ -26,6 +23,7 @@ the radius/spacing token scale.
 - Vertical separators: don't paste the toolbar divider
 - Every async surface has loading, empty, and error states
 - Silent clipping and overlap traps in the installed components
+- Probe
 
 ---
 
@@ -94,26 +92,28 @@ When the exact value matters, compute it: `rounded-[calc(var(--radius-2xl)-0.5re
 Subtle radius/padding defects are hard to see in a screenshot and easy to rationalize away
 ("looks clean/flush"). When reviewing a rounded overlay (Dialog, Popover, Command palette, Sheet),
 **read the live computed styles and check the numbers** instead of judging by eye. Use the renderer
-automation flow (`npm run mobrowser -- agent eval "…"`) to inspect the rendered DOM:
+automation flow (`npm run -s agent -- eval "…"`) to inspect the rendered DOM:
 
 ```js
 // Command palette example. Adapt the selectors to the overlay under review.
-const input =
-  document.querySelector("[cmdk-input]") ||
-  document.querySelector('[data-slot="command-input-wrapper"] input') ||
-  document.querySelector('[role="dialog"] input');
-const box = input && input.closest('[cmdk-root],[role="dialog"],[data-slot="command"]');
-const g = (el) => getComputedStyle(el);
-const num = (v) => parseFloat(v) || 0;
-const r = box && input && {
-  containerRadius: num(g(box).borderTopLeftRadius),
-  containerPaddingTop: num(g(box).paddingTop),
-  containerPaddingLeft: num(g(box).paddingLeft),
-  inputRadius: num(g(input).borderTopLeftRadius),
-  gapTop: input.getBoundingClientRect().top - box.getBoundingClientRect().top,
-  gapLeft: input.getBoundingClientRect().left - box.getBoundingClientRect().left,
-};
-JSON.stringify(r, null, 2);
+(() => {
+  const input =
+    document.querySelector("[cmdk-input]") ||
+    document.querySelector('[data-slot="command-input-wrapper"] input') ||
+    document.querySelector('[role="dialog"]:not([data-closed]) input');
+  const box = input && input.closest('[cmdk-root],[role="dialog"],[data-slot="command"]');
+  const g = (el) => getComputedStyle(el);
+  const num = (v) => parseFloat(v) || 0;
+  const r = box && input && {
+    containerRadius: num(g(box).borderTopLeftRadius),
+    containerPaddingTop: num(g(box).paddingTop),
+    containerPaddingLeft: num(g(box).paddingLeft),
+    inputRadius: num(g(input).borderTopLeftRadius),
+    gapTop: input.getBoundingClientRect().top - box.getBoundingClientRect().top,
+    gapLeft: input.getBoundingClientRect().left - box.getBoundingClientRect().left,
+  };
+  return JSON.stringify(r, null, 2);
+})()
 ```
 
 Then assert:
@@ -363,17 +363,19 @@ This is invisible until you **open the menu**. During visual verification, open 
 row-action menu and measure each item — don't screenshot the closed trigger and move on.
 
 ```js
-const items = [...document.querySelectorAll('[role="menuitem"]')];
-items.map((el) => {
-  const g = getComputedStyle(el);
-  return {
-    text: (el.textContent || "").replace(/\s+/g, " ").trim(),
-    whiteSpace: g.whiteSpace,
-    height: el.getBoundingClientRect().height,
-    lineHeight: parseFloat(g.lineHeight) || 0,
-    wraps: el.scrollHeight > el.clientHeight + 1 || g.whiteSpace !== "nowrap",
-  };
-});
+(() => {
+  const items = [...document.querySelectorAll('[role="menuitem"]')];
+  return items.map((el) => {
+    const g = getComputedStyle(el);
+    return {
+      text: (el.textContent || "").replace(/\s+/g, " ").trim(),
+      whiteSpace: g.whiteSpace,
+      height: el.getBoundingClientRect().height,
+      lineHeight: parseFloat(g.lineHeight) || 0,
+      wraps: el.scrollHeight > el.clientHeight + 1 || g.whiteSpace !== "nowrap",
+    };
+  });
+})()
 ```
 
 `wraps: true` or `whiteSpace` other than `nowrap` is a defect. Height should be one line (line-height +
@@ -487,5 +489,27 @@ comes back on top of the ⋯. Hide the badge for an open menu too:
 
 Verify with the menu open and the pointer moved onto a menu item, not still over the row.
 
+**`SidebarMenuButton` sizes every `svg` inside it to 16px**, not only its leading icon: the class
+is `[&_svg]:size-4`, a descendant selector that outranks a plain `size-*` on the icon itself. A
+colored list dot, an avatar glyph, or a status ring drawn as an `svg` comes out 16px whatever you
+set. Don't patch it with inline styles, and don't edit the registry file. Draw a dot as a `span`
+(`<span className="size-2.5 shrink-0 rounded-full bg-(--list-color)" />`), or, for an icon that
+must be another size, use Tailwind's important modifier on it (`size-3!`).
+
 **Measure, don't eyeball:** for each suspect, compare `el.scrollHeight` vs `el.clientHeight` (clipped
 content) and `getBoundingClientRect()` of neighbours (overlap).
+
+## Probe
+
+Screenshot the changed surface in light **and** dark, bring the window to the front first, then
+measure what a screenshot can't settle:
+
+- **Rounded overlays** (Dialog, Popover, Command, Sheet): [the overlay measurement](#measure-overlays--dont-eyeball-them)
+  — `gapTop`/`gapLeft` ≥ ~8px and `inputRadius ≈ containerRadius − gap`.
+- **Every menu**, opened: [the item measurement](#menu-items-never-wrap) — `wraps: false`,
+  `white-space: nowrap`, one line tall.
+- **Clipping and overlap:** for each suspect, `el.scrollHeight > el.clientHeight` (clipped) and
+  `getBoundingClientRect()` of neighbours (overlap); a stray 1px line next to the sidebar toggle.
+- **Async surfaces:** force each of loading, empty, and error once and screenshot them.
+
+Report the numbers, not "it looks fine".
