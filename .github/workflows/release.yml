@@ -34,7 +34,7 @@ jobs:
             releases-file: releases.osx-x64.json
 
     # On a Mac, `npm run mobrowser -- signcert --gh` exports your Developer ID Application
-    # certificate and adds all seven MAC_* secrets below to the production environment.
+    # certificate and adds all seven MAC_* secrets below as repository secrets.
     env:
       # Base64-encoded Developer ID Application certificate (.p12).
       MAC_CERTIFICATE: ${{ secrets.MAC_CERTIFICATE }}
@@ -252,14 +252,18 @@ jobs:
         run: npm run build -- --verbose
 
       # Linux production builds have no installer yet; ship the bin tree for distribution or CI.
+      # Named like the other installers: <executable name or app name>-<version>-linux-x64.tar.gz.
       - name: Pack Linux binaries
-        run: tar -czvf linux-x64-bin.tar.gz -C build/dist/linux-x64/bin .
+        run: |
+          ARCHIVE=$(node -p 'const a = require("./mobrowser.conf.json").app, v = a.version; `${a.bundle?.Linux?.executableName || a.name}-${v ? [v.major, v.minor, v.patch].map(p => p || 0).join(".") : "SNAPSHOT"}-linux-x64.tar.gz`')
+          tar -czvf "$ARCHIVE" -C build/dist/linux-x64/bin .
+          echo "LINUX_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-linux-x64
-          path: linux-x64-bin.tar.gz
+          path: ${{ env.LINUX_ARCHIVE }}
           if-no-files-found: error
 
   release:

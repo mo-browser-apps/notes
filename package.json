@@ -13,6 +13,7 @@
     "gen": "mobrowser gen",
     "add": "mobrowser add",
     "sbom": "mobrowser sbom",
+    "cert": "mobrowser signcert",
     "mobrowser": "mobrowser"
   },
   "dependencies": {
