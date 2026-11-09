@@ -5,6 +5,7 @@ import { AppCommands } from "@/components/notes/app-commands"
 import { FolderSidebar } from "@/components/notes/folder-sidebar"
 import { NoteEditor } from "@/components/notes/note-editor"
 import { NotesList } from "@/components/notes/notes-list"
+import { WindowControls } from "@/components/notes/window-controls"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -30,6 +31,8 @@ export function NotesApp() {
             <Button onClick={reload}>Try Again</Button>
           </EmptyContent>
         </Empty>
+        {/* Last, so its no-drag area comes after (and wins over) the drag regions under it. */}
+        <WindowControls />
       </div>
     )
   }
@@ -47,6 +50,8 @@ export function NotesApp() {
         <NotesList />
         <NoteEditor />
       </SidebarInset>
+      {/* Last, so its no-drag area comes after (and wins over) the toolbars' drag regions. */}
+      <WindowControls />
     </SidebarProvider>
   )
 }
