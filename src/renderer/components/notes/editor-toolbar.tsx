@@ -166,7 +166,10 @@ export function EditorToolbar({
   const backToEditor = () => getView()?.contentDOM ?? true
 
   return (
-    <header className="app-drag-region flex h-12 shrink-0 items-center gap-1 px-2" aria-label="Note toolbar">
+    <header
+      className="app-drag-region flex h-12 shrink-0 items-center gap-1 px-2 [:root[data-window-controls]_&]:mr-(--titlebar-controls-width) [:root[data-window-controls]_&]:pr-4"
+      aria-label="Note toolbar"
+    >
       {editing && (
         <>
           {/* Wide: the common actions as buttons. */}

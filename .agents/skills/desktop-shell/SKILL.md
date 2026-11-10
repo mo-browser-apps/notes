@@ -125,7 +125,10 @@ menus/tray — so `tsc` and `agent screenshot` are **not** enough:
 
 This app is scaffolded as a **standard app**: one large resizable window, native titlebar on
 Windows/Linux and frameless with repositioned traffic lights on macOS, a Dock icon, and an
-application menu, plus a resizable Settings window (`src/main/settings.ts`). Read the files
+application menu, plus a resizable Settings window (`src/main/settings.ts`). **This project
+changes Windows:** the notes window there has no titlebar and no menu bar, and the renderer draws
+its own minimize/maximize/close buttons (`src/renderer/components/notes/window-controls.tsx`,
+backed by `WindowService` in `src/main/index.ts`). macOS and Linux keep the scaffold's shell. Read the files
 below before adding a main-process feature. They are the worked example for every rule above:
 
 - **`src/main/index.ts`** — window size + minimum size + resizable, titlebar visibility,

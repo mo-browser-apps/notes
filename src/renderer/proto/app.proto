@@ -27,3 +27,22 @@ service AppService {
   // Opens the Settings window (or focuses it) on the given section.
   rpc OpenSettings(OpenSettingsRequest) returns (google.protobuf.Empty);
 }
+
+// The notes window's own caption buttons on Windows, where the native titlebar
+// (and with it the native buttons) is hidden.
+message WindowActionRequest {
+  // "minimize", "toggle-maximize" or "close".
+  string action = 1;
+}
+
+message WindowState {
+  bool maximized = 1;
+}
+
+service WindowService {
+  rpc Act(WindowActionRequest) returns (google.protobuf.Empty);
+  rpc GetState(google.protobuf.Empty) returns (WindowState);
+  // Every change, including ones the user makes outside the buttons
+  // (double-clicking the toolbar, Win+Up, Aero Snap).
+  rpc OnState(google.protobuf.Empty) returns (stream WindowState);
+}

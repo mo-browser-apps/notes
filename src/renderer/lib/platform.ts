@@ -1,6 +1,7 @@
 import type * as React from "react"
 
 export const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac")
+export const isWindows = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows")
 
 /** The shortcut modifier as shown in hints: ⌘ on macOS, Ctrl+ elsewhere. */
 export const MOD = isMac ? "⌘" : "Ctrl+"

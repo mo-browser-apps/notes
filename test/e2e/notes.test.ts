@@ -145,6 +145,12 @@ test("formats Markdown from the toolbar and shortcuts, and the preview renders i
   // ⌘B formats text; it doesn't toggle the sidebar while typing.
   await expect(folderButton(page, "All Notes")).toBeVisible()
 
+  // The formatting buttons need a wide editor (≥ 576px). On a small screen, such as the 1024×768
+  // of the Windows CI runners, the window fits the screen and the editor next to the folder
+  // sidebar and the note list shows the narrow Format menu instead; hiding the sidebar makes room.
+  await page.getByRole("button", { name: "Toggle sidebar" }).click()
+  await expect(folderButton(page, "All Notes")).not.toBeInViewport()
+  await bodyField(page).click()
   await page.keyboard.press("End")
   await page.keyboard.press("Enter")
   await page.keyboard.type("buy milk")
@@ -217,6 +223,41 @@ test("never brings the sample notes back once every note is deleted", async ({ p
     await expect(page.getByText("No notes yet", { exact: true })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 10_000 })
   await expect(page.getByRole("button", { name: "Create Note" })).toBeVisible()
+})
+
+// Writes reach the database asynchronously, and a reload or close aborts the ones still queued.
+// A slow disk (seen on the Linux CI runners) left a deleted note in the database, and it came back.
+// Holding the notes store with a transaction of the test's own keeps the deletes queued until the
+// reload, so the race is the same on every machine.
+test("notes and folders deleted right before the window reloads stay deleted", async ({ page }) => {
+  await noteRow(page, "Wi-Fi at the cabin").click()
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open("notes")
+        open.onerror = () => reject(open.error)
+        open.onsuccess = () => {
+          const store = open.result.transaction("notes", "readwrite").objectStore("notes")
+          const hold = () => (store.count().onsuccess = hold)
+          hold()
+          resolve()
+        }
+      })
+  )
+  await page.keyboard.press("ControlOrMeta+Backspace")
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete Note" }).click()
+  await expect(noteRow(page, "Wi-Fi at the cabin")).toHaveCount(0)
+  await page.getByRole("button", { name: "Actions for Work" }).click()
+  await page.getByRole("menuitem", { name: "Delete Folder…" }).click()
+  await page.getByRole("alertdialog").getByRole("radio", { name: /Delete the notes too/ }).click()
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete Folder and Notes" }).click()
+  await expect(folderButton(page, "Work")).toHaveCount(0)
+
+  await page.reload()
+  await expect(noteRow(page, "Welcome to Notes")).toBeVisible()
+  await expect(noteRow(page, "Wi-Fi at the cabin")).toHaveCount(0)
+  await expect(folderButton(page, "Work")).toHaveCount(0)
+  await expect(noteRow(page, "Meeting Notes")).toHaveCount(0)
 })
 
 // On macOS the window is moved by `-webkit-app-region: drag` areas, and the OS gives those areas

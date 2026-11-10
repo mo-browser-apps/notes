@@ -1,4 +1,4 @@
-import { openDB, type DBSchema, type IDBPDatabase } from "idb"
+import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from "idb"
 
 import { createSampleWorkspace } from "@/lib/sample-data"
 import {
@@ -19,6 +19,10 @@ interface NotesSchema extends DBSchema {
   notes: { key: string; value: Note; indexes: { folderId: string } }
   meta: { key: string; value: unknown }
 }
+
+/** Every write transaction spans all stores, so a replayed write can touch any of them. */
+const WRITE_STORES = ["folders", "notes", "meta"] as const
+type WriteTransaction = IDBPTransaction<NotesSchema, ["folders", "notes", "meta"], "readwrite">
 
 const DB_NAME = "notes"
 const DB_VERSION = 1
@@ -60,7 +64,7 @@ export interface Workspace {
  */
 export async function loadWorkspace(recovered: UnsavedChanges | null = null): Promise<Workspace> {
   const database = await db()
-  const tx = database.transaction(["folders", "notes", "meta"], "readwrite")
+  const tx: WriteTransaction = database.transaction([...WRITE_STORES], "readwrite")
   const folderStore = tx.objectStore("folders")
   const noteStore = tx.objectStore("notes")
   const metaStore = tx.objectStore("meta")
@@ -72,7 +76,9 @@ export async function loadWorkspace(recovered: UnsavedChanges | null = null): Pr
     await metaStore.put(true, INITIALIZED_KEY)
   }
 
-  // Edits journaled while the window was closing; keep whichever version is newer.
+  // Writes still queued while the window was closing, in their original order — creates,
+  // deletes, moves, restores — then the edits journaled with them; keep whichever edit is newer.
+  for (const write of recovered?.writes ?? []) await applyWrite(tx, write)
   for (const note of recovered?.notes ?? []) {
     const stored = await noteStore.get(note.id)
     if (!stored || stored.updatedAt <= note.updatedAt) await noteStore.put(note)
@@ -103,55 +109,72 @@ export async function loadWorkspace(recovered: UnsavedChanges | null = null): Pr
 }
 
 export const notesRepository = {
+  /** The debounced save of an edited note (journaled separately, see `UnsavedChanges.notes`). */
   async put(note: Note): Promise<void> {
     await (await db()).put("notes", note)
   },
-  async putMany(notes: Note[]): Promise<void> {
-    const tx = (await db()).transaction("notes", "readwrite")
-    await Promise.all([...notes.map((note) => tx.store.put(note)), tx.done])
-  },
-  async delete(id: string): Promise<void> {
-    await (await db()).delete("notes", id)
-  },
 }
 
-export const foldersRepository = {
-  async put(folder: Folder): Promise<void> {
-    await (await db()).put("folders", folder)
-  },
-
-  /**
-   * Deletes a folder and, in the same transaction, either deletes its notes or moves them to
-   * the default folder — a failure leaves both untouched, never a folder-less note.
-   */
-  async delete(folderId: string, notes: "delete" | "move"): Promise<void> {
-    const tx = (await db()).transaction(["folders", "notes"], "readwrite")
-    const noteStore = tx.objectStore("notes")
-    const owned = await noteStore.index("folderId").getAll(folderId)
-    for (const note of owned) {
-      if (notes === "delete") await noteStore.delete(note.id)
-      else await noteStore.put({ ...note, folderId: DEFAULT_FOLDER_ID })
-    }
-    await tx.objectStore("folders").delete(folderId)
-    await tx.done
-  },
-
-  /** Puts a folder and its notes back exactly as they were (undo of `delete`). */
-  async restore(folder: Folder, notes: Note[]): Promise<void> {
-    const tx = (await db()).transaction(["folders", "notes"], "readwrite")
-    await tx.objectStore("folders").put(folder)
-    for (const note of notes) await tx.objectStore("notes").put(note)
+/** Every other write: the writes of one UI action, together in one transaction. */
+export const writesRepository = {
+  async apply(writes: QueuedWrite[]): Promise<void> {
+    const tx: WriteTransaction = (await db()).transaction([...WRITE_STORES], "readwrite")
+    for (const write of writes) await applyWrite(tx, write)
     await tx.done
   },
 }
 
 /**
+ * Deletes a folder and either deletes its notes or moves them to the default folder, in the
+ * caller's transaction — a failure leaves both untouched, never a folder-less note.
+ */
+async function deleteFolderIn(tx: WriteTransaction, folderId: string, notes: "delete" | "move") {
+  const noteStore = tx.objectStore("notes")
+  const owned = await noteStore.index("folderId").getAll(folderId)
+  for (const note of owned) {
+    if (notes === "delete") await noteStore.delete(note.id)
+    else await noteStore.put({ ...note, folderId: DEFAULT_FOLDER_ID })
+  }
+  await tx.objectStore("folders").delete(folderId)
+}
+
+/**
+ * A database write the UI has queued, described as data so that it can be journaled when the
+ * window closes before the write ran, and replayed by the next `loadWorkspace`. Every one is
+ * idempotent: replaying a write that did reach the database changes nothing.
+ */
+export type QueuedWrite =
+  | { type: "put-notes"; notes: Note[] }
+  | { type: "delete-note"; noteId: string }
+  | { type: "put-folder"; folder: Folder }
+  | { type: "delete-folder"; folderId: string; notes: "delete" | "move" }
+
+async function applyWrite(tx: WriteTransaction, write: QueuedWrite) {
+  switch (write.type) {
+    case "put-notes":
+      for (const note of write.notes) await tx.objectStore("notes").put(note)
+      break
+    case "delete-note":
+      await tx.objectStore("notes").delete(write.noteId)
+      break
+    case "put-folder":
+      await tx.objectStore("folders").put(write.folder)
+      break
+    case "delete-folder":
+      await deleteFolderIn(tx, write.folderId, write.notes)
+      break
+  }
+}
+
+/**
  * A write-ahead journal for the moment the window closes or reloads. IndexedDB writes started
- * during unload can be aborted, so the edits still waiting for their debounced save are also
- * written synchronously here, and replayed into the database by the next `loadWorkspace`.
- * It is a recovery log only — never the place notes are kept.
+ * during unload can be aborted, so the writes still queued and the edits still waiting for
+ * their debounced save are also written synchronously here, and replayed into the database by
+ * the next `loadWorkspace`. It is a recovery log only — never the place notes are kept.
  */
 export interface UnsavedChanges {
+  /** Queued writes, oldest first. Absent in journals written before writes were journaled. */
+  writes?: QueuedWrite[]
   notes: Note[]
   preferences: AppPreferences | null
 }

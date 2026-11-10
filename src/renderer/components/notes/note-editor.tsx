@@ -175,7 +175,7 @@ function EditorEmpty({ hasNotes }: { hasNotes: boolean }) {
     <div className="flex flex-1 flex-col">
       {/* Only this strip moves the window, like the toolbar it stands in for. A drag region
           under the content would swallow clicks on anything drawn over it — e.g. a dialog. */}
-      <div aria-hidden="true" className="app-drag-region h-12 shrink-0" />
+      <div aria-hidden="true" className="app-drag-region h-12 shrink-0 mr-(--titlebar-controls-width)" />
       <Empty className="pb-18">
         <EmptyHeader>
           <EmptyMedia variant="icon">

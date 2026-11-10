@@ -31,9 +31,9 @@ import { UPDATES_ENABLED } from './updates';
  * handles it for "Delete Note" only outside text fields.
  *
  * Platform split (see docs/guides/guides/app-menu.md): on macOS the menu belongs to the
- * application (`app.setMenu`); on Windows each window owns its own menu bar (`win.setMenu`).
- * Linux has no menu bar — the renderer's own shortcuts cover it. About and Settings… live in the
- * app menu on macOS; on Windows, Settings… is in File and About in Help. About opens Settings on
+ * application (`app.setMenu`). Windows and Linux have no menu bar — on Windows the window has no
+ * titlebar to hang one from — so the renderer's own shortcuts cover it, and Settings… and About
+ * are in the sidebar's menu. About and Settings… live in the app menu on macOS. About opens Settings on
  * its About page (the renderer draws it with the app icon, which `app.showMessageDialog` can't).
  *
  * See `.agents/skills/desktop-shell/rules/menu.md` for the rules this follows.
@@ -160,7 +160,10 @@ export function installAppMenu(win: BrowserWindow, dispatch: MenuDispatch): AppM
   if (isMac) {
     app.setMenu(new Menu({ items: [macAppMenu(about, settings), fileMenu, editMenu, formatMenu, noteMenu, viewMenu, windowMenu()] }));
   } else if (process.platform === 'win32') {
-    win.setMenu(new Menu({ items: [fileMenu, editMenu, formatMenu, noteMenu, viewMenu, helpMenu(about)] }));
+    // No menu bar on Windows: the window has no titlebar to hang it from (see index.ts), and the
+    // renderer handles every shortcut itself (AppCommands); Settings and About are in the
+    // sidebar's menu.
+    win.setMenu(null);
   }
 
   return {
@@ -216,11 +219,6 @@ function appViewItems(): MenuOptions['items'] {
     items.push('separator', 'reload', 'reloadBypassCache', 'devTools');
   }
   return items;
-}
-
-/** Windows has no app menu, so About (and Check for Updates) live in Help. */
-function helpMenu(about: MenuItem): Menu {
-  return new Menu({ label: 'Help', items: [...(UPDATES_ENABLED ? ['checkForUpdates' as const, 'separator' as const] : []), about] });
 }
 
 function windowMenu(): MenuWithRole {

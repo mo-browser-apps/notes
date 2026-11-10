@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipc, Theme } from '@mobrowser/api';
+import { app, BrowserWindow, displays, ipc, Theme } from '@mobrowser/api';
 import { OpenSettingsRequest, SetThemeRequest } from './gen/app';
 import { MenuCommand } from './gen/menu';
-import { AppServiceDescriptor, MenuServiceDescriptor } from './gen/ipc_service';
+import { AppServiceDescriptor, MenuServiceDescriptor, WindowServiceDescriptor } from './gen/ipc_service';
 import { registerFilesService } from './files';
 import { installAppMenu } from './menu';
 import { guardNavigation } from './navigation';
@@ -22,15 +22,12 @@ import * as process from "node:process";
 const win = new BrowserWindow()
 win.browser.loadUrl(app.url)
 
-// Size: room for all three panes at launch. The minimum is the smallest size the renderer
-// still lays out at — below 768px wide the folder sidebar becomes an overlay, leaving the
-// note list and the editor side by side.
-win.setSize({ width: 1300, height: 900 })
-win.setMinimumSize({ width: 720, height: 560 })
-win.setResizable(true)
-
 win.setWindowTitleVisible(false)
-win.setWindowTitlebarVisible(process.platform !== 'darwin')
+// Native titlebar on Linux only. On macOS the traffic lights sit on the app's toolbar; on Windows
+// the toolbar is the titlebar too, and the renderer draws minimize/maximize/close at its right end
+// (WindowControls, backed by WindowService below), since Windows drops the native ones with it.
+const isWindows = process.platform === 'win32'
+win.setWindowTitlebarVisible(process.platform !== 'darwin' && !isWindows)
 if (process.platform === 'darwin') {
   // Vertically center the traffic lights on the app's 48px (h-12) top toolbar so they
   // share a baseline with the sidebar toggle and other toolbar controls. `y` is the top
@@ -39,6 +36,23 @@ if (process.platform === 'darwin') {
   // .agents/skills/shadcn/rules/app-window.md.
   win.setWindowButtonPosition({ x: 19, y: 17 })
 }
+
+// Size: room for all three panes at launch, with the editor wide enough (≥ 576px, its @xl
+// breakpoint, next to the 256px sidebar and the 320px note list) to show the full formatting
+// toolbar rather than the narrow Format menu — but never larger than the primary display's
+// work area, so the whole window, its caption buttons included, is on a small screen such as
+// 1024×768 (where the editor falls back to the Format menu). Sized after the titlebar setters:
+// hiding the titlebar after setSize takes its height off the window. The minimum is the
+// smallest size the renderer still lays out at — below 768px wide the folder sidebar becomes
+// an overlay, leaving the note list and the editor side by side.
+const LAUNCH_SIZE = { width: 1300, height: 900 }
+const workArea = displays.primary?.workArea.size
+win.setSize({
+  width: Math.min(LAUNCH_SIZE.width, workArea?.width ?? LAUNCH_SIZE.width),
+  height: Math.min(LAUNCH_SIZE.height, workArea?.height ?? LAUNCH_SIZE.height),
+})
+win.setMinimumSize({ width: 720, height: 560 })
+win.setResizable(true)
 
 // Links inside notes open in the user's browser; the window never navigates away from the app.
 guardNavigation(win)
@@ -98,6 +112,29 @@ ipc.registerService(MenuServiceDescriptor, {
     return {}
   },
 })
+
+// The renderer's caption buttons on Windows (the native ones go with the hidden titlebar). The
+// state stream is runtime-owned pub/sub, like MenuService.OnCommand above.
+if (isWindows) {
+  const windowService = ipc.registerService(WindowServiceDescriptor)
+  const publishWindowState = () => {
+    if (!win.isClosed) windowService.OnState({ maximized: win.isMaximized })
+  }
+  win.on('maximized', publishWindowState)
+  win.on('restored', publishWindowState)
+  win.on('resized', publishWindowState)
+  ipc.registerService(WindowServiceDescriptor, {
+    async Act({ action }) {
+      if (action === 'minimize') win.minimize()
+      else if (action === 'toggle-maximize') win.isMaximized ? win.restore() : win.maximize()
+      else if (action === 'close') win.close()
+      return {}
+    },
+    async GetState() {
+      return { maximized: win.isMaximized }
+    },
+  })
+}
 
 ipc.registerService(AppServiceDescriptor, {
   async SetTheme(request: SetThemeRequest) {

@@ -48,11 +48,13 @@
      sidebar's top inset) as a drag handle, and carve interactive descendants back out as
      no-drag so they stay clickable. Never put a single drag strip on top of controls — the
      OS drag region swallows the mouse and they become unclickable. Gated to macOS (the only
-     place the native titlebar is hidden); on Windows/Linux these are ordinary containers. */
-  :root[data-platform="mac"] .app-drag-region {
+     place the native titlebar is hidden); on Windows/Linux these are ordinary containers.
+     The notes window on Windows hides its titlebar too and draws its own caption buttons
+     (window-controls.tsx sets data-window-controls), so it gets the same drag regions. */
+  :root:is([data-platform="mac"], [data-window-controls]) .app-drag-region {
     -webkit-app-region: drag;
   }
-  :root[data-platform="mac"] .app-drag-region :where(
+  :root:is([data-platform="mac"], [data-window-controls]) .app-drag-region :where(
     button, a, input, select, textarea, label, summary,
     [role="button"], [role="link"], [role="menuitem"], [role="textbox"],
     [contenteditable], [data-slot="input-group"], [data-slot="sidebar-menu-button"]
@@ -64,7 +66,7 @@
      reaches them — yet the OS still treats a drag region underneath as "move the window" and
      swallows the click (a dialog over a draggable pane could not be confirmed). Every floating
      surface is explicitly no-drag; being later in the document, it wins over the region below. */
-  :root[data-platform="mac"] :is(
+  :root:is([data-platform="mac"], [data-window-controls]) :is(
     [data-slot$="-overlay"], [role="dialog"], [role="alertdialog"], [role="menu"],
     [role="listbox"], [data-slot="popover-content"], [data-slot="tooltip-content"],
     [data-sonner-toaster]
@@ -204,6 +206,9 @@
        A top-of-window toolbar shifts its content right by this when the sidebar is
        hidden/collapsed. */
     --titlebar-traffic-width: 0px;
+    /* Horizontal space the Windows caption buttons (window-controls.tsx) cover at the top-right
+       corner; the rightmost toolbar keeps its content out of it. */
+    --titlebar-controls-width: 0px;
 }
 
 /* Set by App.tsx on macOS only, where src/main/index.ts hides the native titlebar.
@@ -213,6 +218,11 @@
 :root[data-platform="mac"] {
     --titlebar-inset: 36px;
     --titlebar-traffic-width: 84px;
+}
+
+/* Three 46px caption buttons, set while WindowControls is mounted (the notes window on Windows). */
+:root[data-window-controls] {
+    --titlebar-controls-width: 138px;
 }
 
 .dark {
