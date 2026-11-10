@@ -2,11 +2,12 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import {
-  foldersRepository,
   loadWorkspace,
   notesRepository,
   preferencesRepository,
   unsavedChangesJournal,
+  writesRepository,
+  type QueuedWrite,
 } from "@/lib/db"
 import { sortNotes } from "@/lib/note-order"
 import { displayTitle, isBlank, matchesSearch, searchTerms } from "@/lib/note-text"
@@ -146,8 +147,11 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
   const savesInFlight = React.useRef(new Map<string, number>())
   const lastSave = React.useRef(0)
 
-  // Writes enqueued synchronously after a setState must pass the record they write: the
-  // queue can run before React commits, so refs may still hold the previous state.
+  // Queued writes that haven't finished, oldest first, for the unload journal: a reload or
+  // close aborts them, and the next load replays them.
+  const pendingWrites = React.useRef(new Map<number, QueuedWrite[]>())
+  const lastWrite = React.useRef(0)
+
   const enqueue = React.useCallback((label: string, write: () => Promise<void>) => {
     writeQueue.current = writeQueue.current.then(write).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error)
@@ -160,6 +164,17 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
       })
     })
   }, [])
+
+  // Writes enqueued synchronously after a setState must pass the record they write: the
+  // queue can run before React commits, so refs may still hold the previous state.
+  const enqueueWrites = React.useCallback(
+    (label: string, writes: QueuedWrite[]) => {
+      const id = ++lastWrite.current
+      pendingWrites.current.set(id, writes)
+      enqueue(label, () => writesRepository.apply(writes).finally(() => pendingWrites.current.delete(id)))
+    },
+    [enqueue]
+  )
 
   const persistNote = React.useCallback(
     (noteId: string) => {
@@ -230,9 +245,14 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
         ...failedNotes.current,
       ])
       const notes = notesRef.current.filter((note) => pending.has(note.id))
+      const writes = [...pendingWrites.current.values()].flat()
       const preferencesDirty = savedPreferences.current !== preferencesRef.current
-      if (notes.length > 0 || preferencesDirty) {
-        unsavedChangesJournal.write({ notes, preferences: preferencesDirty ? preferencesRef.current : null })
+      if (writes.length > 0 || notes.length > 0 || preferencesDirty) {
+        unsavedChangesJournal.write({
+          writes,
+          notes,
+          preferences: preferencesDirty ? preferencesRef.current : null,
+        })
       }
       flush()
     }
@@ -348,9 +368,9 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
     if (note && isBlank(note)) {
       cancelSave(previous)
       setNotes((prev) => prev.filter((candidate) => candidate.id !== previous))
-      void enqueue("discard empty note", () => notesRepository.delete(previous))
+      enqueueWrites("discard empty note", [{ type: "delete-note", noteId: previous }])
     }
-  }, [preferences.selectedNoteId, cancelSave, enqueue])
+  }, [preferences.selectedNoteId, cancelSave, enqueueWrites])
 
   // ---- Actions ---------------------------------------------------------------------------
   const setQuery = React.useCallback((next: string) => setQueryState(next), [])
@@ -397,9 +417,9 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
     freshNotes.current.add(note.id)
     setNotes((prev) => [note, ...prev])
     updatePreferences({ selectedNoteId: note.id, editorMode: "edit" })
-    void enqueue("create note", () => notesRepository.put(note))
+    enqueueWrites("create note", [{ type: "put-notes", notes: [note] }])
     return note
-  }, [enqueue, targetFolderId, updatePreferences])
+  }, [enqueueWrites, targetFolderId, updatePreferences])
 
   const updateNote = React.useCallback(
     (noteId: string, patch: Partial<Pick<Note, "title" | "content">>) => {
@@ -427,10 +447,10 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
         updatePreferences({ selectedNoteId: neighbour(visibleRef.current, noteId) })
       }
       setNotes((prev) => prev.filter((candidate) => candidate.id !== noteId))
-      void enqueue("delete note", () => notesRepository.delete(noteId))
+      enqueueWrites("delete note", [{ type: "delete-note", noteId }])
       return note
     },
-    [cancelSave, enqueue, updatePreferences]
+    [cancelSave, enqueueWrites, updatePreferences]
   )
 
   const restoreNote = React.useCallback(
@@ -439,9 +459,9 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
       const restored = folderExists ? note : { ...note, folderId: DEFAULT_FOLDER_ID }
       setNotes((prev) => (prev.some((candidate) => candidate.id === note.id) ? prev : [restored, ...prev]))
       updatePreferences({ selectedNoteId: restored.id })
-      void enqueue("restore note", () => notesRepository.put(restored))
+      enqueueWrites("restore note", [{ type: "put-notes", notes: [restored] }])
     },
-    [enqueue, updatePreferences]
+    [enqueueWrites, updatePreferences]
   )
 
   const duplicateNote = React.useCallback(
@@ -459,9 +479,9 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
       setQueryState("")
       setNotes((prev) => [copy, ...prev])
       updatePreferences({ selectedNoteId: copy.id })
-      void enqueue("duplicate note", () => notesRepository.put(copy))
+      enqueueWrites("duplicate note", [{ type: "put-notes", notes: [copy] }])
     },
-    [enqueue, updatePreferences]
+    [enqueueWrites, updatePreferences]
   )
 
   // Moving is organizational: the note keeps its id, content, and both timestamps.
@@ -475,9 +495,9 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
       }
       const moved = { ...note, folderId }
       setNotes((prev) => prev.map((candidate) => (candidate.id === noteId ? moved : candidate)))
-      void enqueue("move note", () => notesRepository.put(moved))
+      enqueueWrites("move note", [{ type: "put-notes", notes: [moved] }])
     },
-    [enqueue, updatePreferences]
+    [enqueueWrites, updatePreferences]
   )
 
   const importFiles = React.useCallback(
@@ -495,10 +515,10 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
       setQueryState("")
       setNotes((prev) => [...imported, ...prev])
       updatePreferences({ selectedNoteId: imported[0].id })
-      void enqueue("import notes", () => notesRepository.putMany(imported))
+      enqueueWrites("import notes", [{ type: "put-notes", notes: imported }])
       return imported
     },
-    [enqueue, targetFolderId, updatePreferences]
+    [enqueueWrites, targetFolderId, updatePreferences]
   )
 
   const createFolder = React.useCallback((): Folder | null => {
@@ -510,9 +530,9 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
     const folder: Folder = { id: newId(), name, createdAt: now, updatedAt: now }
     setFolders((prev) => [...prev, folder])
     updatePreferences({ selectedFolderId: folder.id })
-    void enqueue("create folder", () => foldersRepository.put(folder))
+    enqueueWrites("create folder", [{ type: "put-folder", folder }])
     return folder
-  }, [enqueue, updatePreferences])
+  }, [enqueueWrites, updatePreferences])
 
   const renameFolder = React.useCallback(
     (folderId: string, name: string) => {
@@ -521,9 +541,9 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
       if (!folder || !trimmed || trimmed === folder.name) return
       const renamed = { ...folder, name: trimmed, updatedAt: Date.now() }
       setFolders((prev) => prev.map((candidate) => (candidate.id === folderId ? renamed : candidate)))
-      void enqueue("rename folder", () => foldersRepository.put(renamed))
+      enqueueWrites("rename folder", [{ type: "put-folder", folder: renamed }])
     },
-    [enqueue]
+    [enqueueWrites]
   )
 
   const deleteFolder = React.useCallback(
@@ -552,10 +572,10 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
           ? prev.filter((note) => !ownedIds.has(note.id))
           : prev.map((note) => (ownedIds.has(note.id) ? { ...note, folderId: DEFAULT_FOLDER_ID } : note))
       )
-      void enqueue("delete folder", () => foldersRepository.delete(folderId, mode))
+      enqueueWrites("delete folder", [{ type: "delete-folder", folderId, notes: mode }])
       return { folder, notes: owned, mode }
     },
-    [cancelSave, enqueue, updatePreferences]
+    [cancelSave, enqueueWrites, updatePreferences]
   )
 
   const restoreFolder = React.useCallback(
@@ -573,9 +593,12 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
       setFolders((prev) => (prev.some((candidate) => candidate.id === folder.id) ? prev : [...prev, folder]))
       setNotes((prev) => [...prev.filter((note) => !restoredIds.has(note.id)), ...restored])
       updatePreferences({ selectedFolderId: folder.id })
-      void enqueue("restore folder", () => foldersRepository.restore(folder, restored))
+      enqueueWrites("restore folder", [
+        { type: "put-folder", folder },
+        { type: "put-notes", notes: restored },
+      ])
     },
-    [enqueue, updatePreferences]
+    [enqueueWrites, updatePreferences]
   )
 
   const value: NotesContextValue = {
