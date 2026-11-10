@@ -145,6 +145,12 @@ test("formats Markdown from the toolbar and shortcuts, and the preview renders i
   // ⌘B formats text; it doesn't toggle the sidebar while typing.
   await expect(folderButton(page, "All Notes")).toBeVisible()
 
+  // The formatting buttons need a wide editor (≥ 576px). On a small screen, such as the 1024×768
+  // of the Windows CI runners, the window fits the screen and the editor next to the folder
+  // sidebar and the note list shows the narrow Format menu instead; hiding the sidebar makes room.
+  await page.getByRole("button", { name: "Toggle sidebar" }).click()
+  await expect(folderButton(page, "All Notes")).not.toBeInViewport()
+  await bodyField(page).click()
   await page.keyboard.press("End")
   await page.keyboard.press("Enter")
   await page.keyboard.type("buy milk")
