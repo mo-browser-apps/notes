@@ -22,10 +22,12 @@ import * as process from "node:process";
 const win = new BrowserWindow()
 win.browser.loadUrl(app.url)
 
-// Size: room for all three panes at launch. The minimum is the smallest size the renderer
+// Size: room for all three panes at launch, with the editor wide enough (≥ 576px, its @xl
+// breakpoint, next to the 256px sidebar and the 320px note list) to show the full formatting
+// toolbar rather than the narrow Format menu. The minimum is the smallest size the renderer
 // still lays out at — below 768px wide the folder sidebar becomes an overlay, leaving the
 // note list and the editor side by side.
-win.setSize({ width: 1100, height: 900 })
+win.setSize({ width: 1300, height: 900 })
 win.setMinimumSize({ width: 720, height: 560 })
 win.setResizable(true)
 
