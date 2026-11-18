@@ -197,8 +197,9 @@ jobs:
             exit 0
           fi
           # Another target's job may create the release first. Notes go through stdin: Git Bash rewrites an argument that starts with a slash.
+          # GitHub's generated notes follow them: a release without text shows the tagged commit's message.
           gh release view "$tag" > /dev/null 2>&1 ||
-            gh release create "$tag" --target "$RELEASE_SOURCE_COMMIT" --title "$RELEASE_VERSION" --notes-file - <<< "$RELEASE_NOTES" ||
+            gh release create "$tag" --target "$RELEASE_SOURCE_COMMIT" --title "$RELEASE_VERSION" --generate-notes --notes-file - <<< "$RELEASE_NOTES" ||
             gh release view "$tag" > /dev/null
           if [ -z "$(gh release view "$tag" --json assets --jq ".assets[] | select(.name == \"$ASSET\") | .name")" ]; then
             cp "$INSTALLER" "$RUNNER_TEMP/$ASSET"
