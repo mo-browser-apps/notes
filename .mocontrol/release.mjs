@@ -167,6 +167,10 @@ async function put(target, file, size) {
   if (!response.ok && response.status !== 412)
     throw new Error(`Artifact upload failed (${response.status})`);
 }
+// Drover's settings for the app (where its users' feedback goes), with this build's version and target.
+// Written into the build as Drover sends them, so new settings need no change here.
+const droverSettings = (buildSettings) =>
+  buildSettings ? { ...buildSettings, version, os: platform, arch: architecture } : undefined;
 if (command === 'register') {
   const release = await call('register').catch(async (error) => {
     // 409: no pending reservation for this run. 400: inputs MoControl never sends, typed in GitHub.
@@ -189,6 +193,7 @@ if (command === 'register') {
     failureStage: 'build',
     updateUrl: release.updateUrl ?? null,
     appUrl: release.appUrl?.startsWith('https://') ? release.appUrl : null,
+    buildSettings: release.buildSettings ?? null,
   });
 } else if (command === 'prepare') {
   const config = JSON.parse(await readFile('mobrowser.conf.json', 'utf8'));
@@ -206,7 +211,13 @@ if (command === 'register') {
         config.app.bundle.macOS[key] = '';
     if (config.app.bundle.Windows) config.app.bundle.Windows.signCommand = '';
   }
-  const { updateUrl } = await readStage();
+  const { updateUrl, buildSettings } = await readStage();
+  // In the checkout only; the main process build inlines package.json.
+  if (buildSettings) {
+    const pkg = JSON.parse(await readFile('package.json', 'utf8'));
+    pkg.drover = droverSettings(buildSettings);
+    await writeFile('package.json', `${JSON.stringify(pkg, null, 2)}\n`);
+  }
   if (updateUrl) {
     config.app.updateServerUrl ||= updateUrl;
     const pkg = JSON.parse(await readFile('package.json', 'utf8'));
